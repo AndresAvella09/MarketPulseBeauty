@@ -1,0 +1,3 @@
+## Objetivo del primer Sprint (Liderado por Diego Avella)
+
+Durante la primera semana de planificación y trabajo del proyecto, se definirán la estructura del repositorio (Añadida dentro del `README.md`), así como el entorno inicializado, libreías cargadas, las fuentes de datos definidas y los procesos de extracción de los datos funcionales. Esto con el fin de plantear las bases del proyecto y planificar según los tiempos y alcance planificado. 
