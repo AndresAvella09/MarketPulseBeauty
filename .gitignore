@@ -1,0 +1,29 @@
+# ───────────────
+# Entorno virtual
+# ───────────────
+venv/
+.venv/
+
+# ───────────────
+# Variables privadas
+# ───────────────
+.env
+.env.*
+
+# ───────────────
+# Python cache
+# ───────────────
+__pycache__/
+*.pyc
+
+# ───────────────
+# Datos generados dentro de scraping
+# ───────────────
+scraping/data/
+scraping/image/
+
+# ───────────────
+# Archivos sensibles específicos
+# ───────────────
+scraping/.env
+scraping/data/json/sephora_cookies.json
