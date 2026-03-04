@@ -11,3 +11,7 @@ urllib3<2
 beautifulsoup4==4.12.3
 streamlit==1.33.0
 pytest==8.1.1
+playwright
+playwright-stealth
+beautifulsoup4
+requests
