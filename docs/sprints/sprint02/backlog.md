@@ -81,6 +81,7 @@ Optimizar el script de scraping implementando:
 - Prevención de duplicados
 - Validadción de campos faltantes
 - Registro de errores (loggin básico)
+- Unificar guardado de datos en `/data/raw/`
 
 Criterios de aceptación:
 - Script actualizado y documentado
