@@ -13,6 +13,21 @@ parser.add_argument("--limit", type=int, default=None,
                     help="Limit number of products to scrape (dev mode)")
 args = parser.parse_args()
 
+# ── Keyword map: slug fragment → clean label ──────────────────────────────────
+KEYWORD_MAP = {
+    "niacinamide":    "Niacinamide",
+    "hyaluronic-acid": "Hyaluronic Acid",
+    "hyaluronic":     "Hyaluronic Acid",
+    "sulfate-free":   "Sulfate-Free Shampoo",
+}
+
+def detect_keyword(url: str) -> str | None:
+    url_lower = url.lower()
+    for slug, label in KEYWORD_MAP.items():
+        if slug in url_lower:
+            return label
+    return None
+
 
 def find_in_json(data, *keys):
     """Recursively search nested JSON for first occurrence of any of the given keys."""
@@ -32,13 +47,14 @@ def find_in_json(data, *keys):
 
 
 def get_data(page, product_link):
-    # Normalize URL — strip icid2 and deduplicate by pd_id
     clean_link = re.sub(r'&icid2=.*', '', product_link).replace("%20", " ").strip()
 
     pd_id_match = re.findall(r'(P[0-9]{4,9})', clean_link, re.IGNORECASE)
     if not pd_id_match:
         return None
     pd_id = pd_id_match[0].upper()
+
+    keyword = detect_keyword(clean_link)
 
     try:
         page.goto(clean_link, wait_until="domcontentloaded", timeout=30000)
@@ -52,7 +68,6 @@ def get_data(page, product_link):
     html = page.content()
     soup = BeautifulSoup(html, 'html.parser')
 
-    # ── Try linkStore JSON first (most reliable) ──────────────────────────────
     category = size_and_item = price = love_count = reviews_count = None
 
     script = soup.find("script", id="linkStore")
@@ -64,27 +79,22 @@ def get_data(page, product_link):
             pass
 
     if jdata:
-        # Category from breadcrumbs array in JSON
         try:
             jstr = json.dumps(jdata)
-            # breadcrumbs often stored as displayName arrays
             bc = re.findall(r'"displayName"\s*:\s*"([^"]+)"', jstr)
             if bc:
-                category = ', '.join(bc[:4])  # first 4 breadcrumb items
+                category = ', '.join(bc[:4])
         except Exception:
             pass
 
-        price      = find_in_json(jdata, "currentSku", "listPrice", "salePrice") \
-                     or find_in_json(jdata, "listPrice", "salePrice", "currentPrice")
-        love_count = find_in_json(jdata, "lovesCount", "loves", "loveCount", "love_count")
+        price         = find_in_json(jdata, "currentSku", "listPrice", "salePrice") \
+                        or find_in_json(jdata, "listPrice", "salePrice", "currentPrice")
+        love_count    = find_in_json(jdata, "lovesCount", "loves", "loveCount", "love_count")
         reviews_count = find_in_json(jdata, "reviews", "reviewCount", "numReviews")
         size_and_item = find_in_json(jdata, "size", "itemNumber", "netWeight")
 
-    # ── HTML fallbacks (handles any data-comp naming) ─────────────────────────
-
     if category is None:
         try:
-            # Match any element whose data-comp contains "BreadCrumb"
             bc_el = soup.find(attrs={"data-comp": re.compile(r"BreadCrumb", re.I)})
             if bc_el:
                 cats = [a.get_text(strip=True) for a in bc_el.find_all("a") if a.get_text(strip=True)]
@@ -102,13 +112,11 @@ def get_data(page, product_link):
 
     if price is None:
         try:
-            # Match any data-comp containing "Price"
             el = soup.find(attrs={"data-comp": re.compile(r"\bPrice\b", re.I)})
             if el:
                 price = el.get_text(strip=True) or None
         except Exception:
             pass
-        # Fallback: look for $ in page
         if price is None:
             try:
                 price_el = soup.find(string=re.compile(r'\$\d+'))
@@ -127,7 +135,6 @@ def get_data(page, product_link):
 
     if reviews_count is None:
         try:
-            # Try linkJSON (older page format)
             lj = soup.find(attrs={"id": "linkJSON"})
             if lj:
                 rv = re.findall(r'"reviews"\s*:\s*(\d+)', str(lj))
@@ -138,6 +145,7 @@ def get_data(page, product_link):
 
     return {
         'pd_id':         pd_id,
+        'keyword':       keyword,           # ← clean keyword label
         'size_and_item': size_and_item,
         'category':      category,
         'price':         price,
@@ -148,7 +156,7 @@ def get_data(page, product_link):
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
-with open("scraping/data/json/sephora_cookies.json", "r") as f:
+with open("src/ingestion/scraper/sephora_cookies.json", "r") as f:
     raw_cookies = json.load(f)
 
 def normalize_cookies(raw_cookies):
@@ -161,10 +169,9 @@ def normalize_cookies(raw_cookies):
         if c.get("name", c.get("Name")) and c.get("value", c.get("Value"))
     ]
 
-with open('scraping/data/txt/product_links.txt', 'r') as f:
+with open('data/raw/links/product_links.txt', 'r') as f:
     all_links = [line.strip() for line in f if line.strip()]
 
-# Deduplicate by pd_id — keep first occurrence, skip icid2 dupes
 seen_ids = set()
 product_links = []
 
@@ -178,7 +185,6 @@ for link in all_links:
 
 print(f"Total links: {len(all_links)} → After dedup: {len(product_links)}")
 
-# 🔥 LIMITADOR SEGURO
 if args.limit:
     print(f"Development mode: limiting to first {args.limit} products\n")
     product_links = product_links[:args.limit]
@@ -205,9 +211,93 @@ with sync_playwright() as p:
             continue
 
         result.append(data)
-        pd.DataFrame(result).to_csv('scraping/data/csv/pd_info.csv', index=False)
-        print(f'{i+1:04d} / {len(product_links)} || {data["pd_id"]} | price={data["price"]} | reviews={data["reviews_count"]} || {link[:60]}')
+        pd.DataFrame(result).to_csv('data/raw/csv/pd_info.csv', index=False)
+        print(f'{i+1:04d} / {len(product_links)} || {data["pd_id"]} | keyword={data["keyword"]} | price={data["price"]} | reviews={data["reviews_count"]} || {link[:60]}')
 
     browser.close()
 
-print(f'\nDone! {len(result)} products saved to scraping/data/csv/pd_info.csv')
+
+# ── Merge Bazaarvoice product stats from scraper_result.json ──────────────────
+try:
+    with open('data/raw/json/scraper_result.json') as f:
+        bv_result = json.load(f)
+
+    df = pd.DataFrame(result)
+
+    for pid, value in bv_result.items():
+        if not value or value[0] is None:
+            continue
+
+        product_result = value[0]
+        if not product_result:
+            continue
+
+        # Navigate nested BV structure
+        try:
+            product_result = product_result[pid]
+        except KeyError:
+            try:
+                product_result = product_result[pid.lower()]
+            except KeyError:
+                product_result = next(iter(product_result.values()), None)
+
+        if not product_result:
+            continue
+
+        pid_upper = pid.upper()
+        mask = df['pd_id'] == pid_upper
+
+        for col in ['Name', 'Description']:
+            if col in product_result:
+                df.loc[mask, col] = product_result[col]
+
+        stats = product_result.get('ReviewStatistics', {})
+        for col in ['AverageOverallRating', 'FirstSubmissionTime', 'LastSubmissionTime']:
+            if col in stats:
+                df.loc[mask, col] = stats[col]
+
+        try:
+            age_data = stats['ContextDataDistribution']['age']['Values']
+            for age_group in age_data:
+                df.loc[mask, f'Age_{age_group["Value"]}'] = age_group['Count']
+        except KeyError:
+            pass
+
+    df.to_csv('data/raw/csv/pd_info.csv', index=False)
+    print(f"\nMerged BV stats → {len(df)} products saved to data/raw/csv/pd_info.csv")
+
+except FileNotFoundError:
+    pd.DataFrame(result).to_csv('data/raw/csv/pd_info.csv', index=False)
+    print(f"\nNo scraper_result.json found — saved {len(result)} products (Playwright data only) to data/raw/csv/pd_info.csv")
+
+
+# ── Review data (unchanged) ───────────────────────────────────────────────────
+try:
+    with open('data/raw/json/scraper_result.json') as f:
+        bv_result = json.load(f)
+
+    reviews_dic = {
+        'pd_id': [], 'AuthorId': [], 'Rating': [], 'Title': [],
+        'ReviewText': [], 'Helpfulness': [], 'SubmissionTime': [],
+        'IsRecommended': [], 'eyeColor': [], 'hairColor': [],
+        'skinTone': [], 'skinType': [],
+    }
+
+    for pid, value in bv_result.items():
+        if not value or value[1] is None:
+            continue
+        for review in value[1]:
+            reviews_dic['pd_id'].append(pid.upper())
+            for col in ['AuthorId', 'Rating', 'Title', 'ReviewText',
+                        'Helpfulness', 'SubmissionTime', 'IsRecommended']:
+                reviews_dic[col].append(review.get(col))
+            ctx = review.get('ContextDataValues', {})
+            for col in ['eyeColor', 'hairColor', 'skinTone', 'skinType']:
+                reviews_dic[col].append(ctx.get(col, {}).get('Value'))
+
+    review_df = pd.DataFrame(reviews_dic)
+    review_df.to_csv('data/raw/csv/review_data.csv', index=False)
+    print(f"Saved {len(review_df)} reviews ({review_df['pd_id'].nunique()} products) to data/raw/csv/review_data.csv")
+
+except FileNotFoundError:
+    print("No scraper_result.json found — skipping review export")

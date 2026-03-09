@@ -22,7 +22,7 @@ for brand in main_box.find_all('li'):
         brand_link_lst.append("https://www.sephora.com" +
                               brand.a.attrs['href'] + "/all?pageSize=300")
 
-with open('scraping/data/txt/brand_link.txt', 'w') as f:
+with open('data/raw/links/brand_link.txt', 'w') as f:
     for item in brand_link_lst:
         f.write(f"{item}\n")
 
