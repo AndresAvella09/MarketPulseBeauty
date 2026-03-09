@@ -11,6 +11,18 @@ parser.add_argument("--limit", type=int, default=None,
                     help="Limit number of brands to scrape (for development)")
 args = parser.parse_args()
 
+# ── Keyword filter ────────────────────────────────────────────────────────────
+KEYWORDS = [
+    "niacinamide",
+    "hyaluronic-acid",
+    "hyaluronic",
+    "sulfate-free",
+]
+
+def matches_keywords(url):
+    url_lower = url.lower()
+    return any(kw in url_lower for kw in KEYWORDS)
+
 
 def extract_all_product_links(data, seen_set, result_list):
     """Recursively searches a JSON object for Sephora product URLs."""
@@ -78,7 +90,7 @@ def scrape_product(page, link):
     return product_link_lst
 
 
-with open("scraping/data/json/sephora_cookies.json", "r") as f:
+with open("src/ingestion/scraper/sephora_cookies.json", "r") as f:
     cookies = json.load(f)
 
 
@@ -96,7 +108,7 @@ def normalize_cookies(raw_cookies):
     return normalized
 
 
-with open("scraping/data/txt/brand_link.txt", "r") as f:
+with open("data/raw/links/brand_link.txt", "r") as f:
     brand_links = [line.strip() for line in f if line.strip()]
 
 # 🔥 LIMITADOR SEGURO (NO ROMPE NADA)
@@ -141,14 +153,17 @@ with sync_playwright() as p:
         ct += 1
 
         if ct % 20 == 0:
-            with open("scraping/data/txt/product_links.txt", "w") as f:
-                f.write("\n".join(all_product_links))
-            print(f"\n Progress saved at brand {ct} ({len(all_product_links)} links so far)")
+            filtered = [l for l in all_product_links if matches_keywords(l)]  # ← add this
+            with open("data/raw/links/product_links.txt", "w") as f:
+                f.write("\n".join(filtered))  # ← and this
 
     browser.close()
 
+all_product_links = [link for link in all_product_links if matches_keywords(link)]
+print(f"After keyword filter: {len(all_product_links)} products")
+# ─────────────────────────────────────────────────────────────────────────────
 
-with open("scraping/data/txt/product_links.txt", "w") as f:
+with open("data/raw/links/product_links.txt", "w") as f:
     f.write("\n".join(all_product_links))
 
-print(f'\nDone! {len(all_product_links)} products saved to scraping/data/txt/product_links.txt')
+print(f'\nDone! {len(all_product_links)} products saved to data/raw/links/product_links.txt')
