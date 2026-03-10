@@ -1,6 +1,9 @@
 import re
 import json
 import pandas as pd
+import logging
+
+logging.basicConfig(filename='logs/scraping.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 with open('data/raw/json/scraper_result.json') as f:
     result = json.load(f)
@@ -49,4 +52,4 @@ for pid, value in result.items():
 
 review_df = pd.DataFrame(reviews_dic)
 review_df.to_csv('data/raw/csv/review_data.csv', index=False)
-print(f"Saved {len(review_df)} reviews ({review_df['pd_id'].nunique()} products) to data/raw/csv/review_data.csv")
+logging.info(f"Saved {len(review_df)} reviews ({review_df['pd_id'].nunique()} products) to data/raw/csv/review_data.csv")

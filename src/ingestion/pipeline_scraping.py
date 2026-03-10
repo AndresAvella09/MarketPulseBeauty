@@ -1,11 +1,14 @@
 import subprocess
 import os
 import argparse
+import logging
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--limit", type=int, default=None,
                     help="Limit items when running in development mode")
 args = parser.parse_args()
+
+logging.basicConfig(filename='logs/scraping.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ✅ Resolve the scraper directory relative to this file
 SCRAPER_DIR = os.path.join(os.path.dirname(__file__), "scraper")
@@ -16,7 +19,7 @@ def run_step(script, output_file, use_limit=False):
     abs_output = os.path.join(PROJECT_ROOT, output_file)
 
     if os.path.exists(abs_output):
-        print(f"Saltando {script} (ya existe {output_file})")
+        logging.info(f"Skipping {script} (already exists {output_file})")
         return
 
     script_path = os.path.join(SCRAPER_DIR, script)
@@ -25,7 +28,7 @@ def run_step(script, output_file, use_limit=False):
     if args.limit and use_limit:
         command.extend(["--limit", str(args.limit)])
 
-    print(f"Ejecutando {' '.join(command)}")
+    logging.info(f"Executing {' '.join(command)}")
     subprocess.run(command, check=True)
 
 

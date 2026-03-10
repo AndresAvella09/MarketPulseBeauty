@@ -7,11 +7,14 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from playwright_stealth import Stealth
 import argparse
+import logging
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--limit", type=int, default=None,
                     help="Limit number of products to scrape (dev mode)")
 args = parser.parse_args()
+
+logging.basicConfig(filename='logs/scraping.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ── Keyword map: slug fragment → clean label ──────────────────────────────────
 KEYWORD_MAP = {
@@ -209,7 +212,7 @@ with sync_playwright() as p:
         data = get_data(page, link)
 
         if data is None:
-            print(f'{i+1:04d} / {len(product_links)} || BLOCKED/SKIPPED || {link}')
+            logging.error(f'BLOCKED/SKIPPED || {link}')
             continue
 
         result.append(data)
@@ -271,9 +274,9 @@ try:
             pass
 
     df.to_csv('data/raw/csv/pd_info.csv', index=False)
-    print(f"\nMerged BV stats → {len(df)} products saved to data/raw/csv/pd_info.csv")
+    logging.info(f"Merged BV stats → {len(df)} products saved to data/raw/csv/pd_info.csv")
 
 except FileNotFoundError:
     pd.DataFrame(result).to_csv('data/raw/csv/pd_info.csv', index=False)
-    print(f"\nNo scraper_result.json found — saved {len(result)} products (Playwright data only) to data/raw/csv/pd_info.csv")
+    logging.info(f"No scraper_result.json found — saved {len(result)} products (Playwright data only) to data/raw/csv/pd_info.csv")
 
