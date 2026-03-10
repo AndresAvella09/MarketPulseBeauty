@@ -4,6 +4,7 @@ import json
 import requests
 import os
 import argparse
+import logging
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--limit", type=int, default=None,
@@ -12,6 +13,8 @@ args = parser.parse_args()
 
 from dotenv import load_dotenv
 load_dotenv()
+
+logging.basicConfig(filename='logs/scraping.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ── Load product IDs ──────────────────────────────────────────────────────────
 with open('data/raw/links/product_links.txt', 'r') as f:
@@ -61,19 +64,19 @@ def scrape_reviews(p_id, proxy=None):
         try:
             r = requests.get(BV_URL, params=params, headers=HEADERS, proxies=proxies, timeout=15)
             if r.status_code != 200:
-                print(f"  HTTP {r.status_code} for {p_id}")
+                logging.error(f"HTTP {r.status_code} for {p_id}")
                 return None, None
             data = r.json()
         except Exception as e:
-            print(f"  Error fetching {p_id}: {e}")
+            logging.error(f"Error fetching {p_id}: {e}")
             return None, None
 
         if data.get('HasErrors'):
             errors = data.get('Errors', [])
             for e in errors:
-                print(f"  BV API Error: {e.get('Message')} ({e.get('Code')})")
+                logging.error(f"BV API Error: {e.get('Message')} ({e.get('Code')})")
                 if 'passkey' in e.get('Message', '').lower() or 'API_KEY' in e.get('Code', ''):
-                    print("  !! Invalid passkey — update BV_PASSKEY in the script")
+                    logging.error("Invalid passkey — update BV_PASSKEY in the script")
             return None, None
 
         if not product:
@@ -88,7 +91,7 @@ def scrape_reviews(p_id, proxy=None):
 
         time.sleep(0.2)
 
-    print(f"  {p_id}: {len(reviews)} / {total} reviews")
+    logging.info(f"{p_id}: {len(reviews)} / {total} reviews")
     time.sleep(0.5)
     return product, reviews
 
@@ -102,7 +105,7 @@ for i, pid in enumerate(unique_pids):
     product_data, reviews_data = scrape_reviews(pid)
 
     if product_data is None:
-        print(f"  Skipping {pid} — request failed")
+        logging.warning(f"Skipping {pid} — request failed")
         result[pid] = [None, None]
         continue
 
@@ -112,11 +115,11 @@ for i, pid in enumerate(unique_pids):
     if (i + 1) % 20 == 0:
         with open("data/raw/json/scraper_result.json", "w") as f:
             json.dump(result, f)
-        print(f"  Progress saved ({i+1} products)")
+        logging.info(f"Progress saved ({i+1} products)")
 
 # ── Final save ────────────────────────────────────────────────────────────────
 with open("data/raw/json/scraper_result.json", "w") as f:
     json.dump(result, f)
 
 total_reviews = sum(len(v[1]) for v in result.values() if v[1])
-print(f"\nDone! {len(result)} products, {total_reviews} total reviews → data/raw/json/scraper_result.json")
+logging.info(f"Done! {len(result)} products, {total_reviews} total reviews → data/raw/json/scraper_result.json")
