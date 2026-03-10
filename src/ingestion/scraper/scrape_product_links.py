@@ -16,7 +16,7 @@ KEYWORDS = [
     "niacinamide",
     "hyaluronic-acid",
     "hyaluronic",
-    "sulfate-free",
+    "sunscreen",
 ]
 
 def matches_keywords(url):

@@ -18,7 +18,7 @@ KEYWORD_MAP = {
     "niacinamide":    "Niacinamide",
     "hyaluronic-acid": "Hyaluronic Acid",
     "hyaluronic":     "Hyaluronic Acid",
-    "sulfate-free":   "Sulfate-Free Shampoo",
+    "sunscreen":   "Sunscreen",
 }
 
 def detect_keyword(url: str) -> str | None:
@@ -68,7 +68,7 @@ def get_data(page, product_link):
     html = page.content()
     soup = BeautifulSoup(html, 'html.parser')
 
-    category = size_and_item = price = love_count = reviews_count = None
+    category = size_and_item = price = love_count = reviews_count = brand = None
 
     script = soup.find("script", id="linkStore")
     jdata = None
@@ -92,6 +92,7 @@ def get_data(page, product_link):
         love_count    = find_in_json(jdata, "lovesCount", "loves", "loveCount", "love_count")
         reviews_count = find_in_json(jdata, "reviews", "reviewCount", "numReviews")
         size_and_item = find_in_json(jdata, "size", "itemNumber", "netWeight")
+        brand         = find_in_json(jdata, "brandName", "brand", "BrandName")
 
     if category is None:
         try:
@@ -145,7 +146,8 @@ def get_data(page, product_link):
 
     return {
         'pd_id':         pd_id,
-        'keyword':       keyword,           # ← clean keyword label
+        'keyword':       keyword,
+        'brand':         brand,
         'size_and_item': size_and_item,
         'category':      category,
         'price':         price,
@@ -251,6 +253,11 @@ try:
             if col in product_result:
                 df.loc[mask, col] = product_result[col]
 
+        # BV brand fallback — fills in any rows where Playwright didn't catch it
+        bv_brand = product_result.get('Brand', {})
+        if isinstance(bv_brand, dict) and bv_brand.get('Name'):
+            df.loc[mask & df['brand'].isna(), 'brand'] = bv_brand['Name']
+
         stats = product_result.get('ReviewStatistics', {})
         for col in ['AverageOverallRating', 'FirstSubmissionTime', 'LastSubmissionTime']:
             if col in stats:
@@ -270,34 +277,3 @@ except FileNotFoundError:
     pd.DataFrame(result).to_csv('data/raw/csv/pd_info.csv', index=False)
     print(f"\nNo scraper_result.json found — saved {len(result)} products (Playwright data only) to data/raw/csv/pd_info.csv")
 
-
-# ── Review data (unchanged) ───────────────────────────────────────────────────
-try:
-    with open('data/raw/json/scraper_result.json') as f:
-        bv_result = json.load(f)
-
-    reviews_dic = {
-        'pd_id': [], 'AuthorId': [], 'Rating': [], 'Title': [],
-        'ReviewText': [], 'Helpfulness': [], 'SubmissionTime': [],
-        'IsRecommended': [], 'eyeColor': [], 'hairColor': [],
-        'skinTone': [], 'skinType': [],
-    }
-
-    for pid, value in bv_result.items():
-        if not value or value[1] is None:
-            continue
-        for review in value[1]:
-            reviews_dic['pd_id'].append(pid.upper())
-            for col in ['AuthorId', 'Rating', 'Title', 'ReviewText',
-                        'Helpfulness', 'SubmissionTime', 'IsRecommended']:
-                reviews_dic[col].append(review.get(col))
-            ctx = review.get('ContextDataValues', {})
-            for col in ['eyeColor', 'hairColor', 'skinTone', 'skinType']:
-                reviews_dic[col].append(ctx.get(col, {}).get('Value'))
-
-    review_df = pd.DataFrame(reviews_dic)
-    review_df.to_csv('data/raw/csv/review_data.csv', index=False)
-    print(f"Saved {len(review_df)} reviews ({review_df['pd_id'].nunique()} products) to data/raw/csv/review_data.csv")
-
-except FileNotFoundError:
-    print("No scraper_result.json found — skipping review export")
