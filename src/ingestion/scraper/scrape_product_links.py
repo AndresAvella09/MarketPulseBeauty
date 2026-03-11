@@ -5,11 +5,26 @@ import time
 import random
 import json
 import argparse
+import logging
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--limit", type=int, default=None,
                     help="Limit number of brands to scrape (for development)")
 args = parser.parse_args()
+
+logging.basicConfig(filename='logs/scraping.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# ── Keyword filter ────────────────────────────────────────────────────────────
+KEYWORDS = [
+    "niacinamide",
+    "hyaluronic-acid",
+    "hyaluronic",
+    "sunscreen",
+]
+
+def matches_keywords(url):
+    url_lower = url.lower()
+    return any(kw in url_lower for kw in KEYWORDS)
 
 
 def extract_all_product_links(data, seen_set, result_list):
@@ -42,7 +57,7 @@ def scrape_product(page, link):
         page.goto(full_link, wait_until="domcontentloaded", timeout=30000)
         time.sleep(random.uniform(2, 4))
         if "Access Denied" in page.title():
-            print(f"\r Blocked on {brand_name}", end="")
+            logging.error(f"Access Denied for {brand_name}")
             return None
 
         for _ in range(10):
@@ -52,7 +67,7 @@ def scrape_product(page, link):
         time.sleep(2)
 
     except PlaywrightTimeoutError:
-        print(f"\r Timeout on {brand_name}", end="")
+        logging.error(f"Timeout on {brand_name}")
         return None
 
     soup = BeautifulSoup(page.content(), "html.parser")
@@ -65,7 +80,7 @@ def scrape_product(page, link):
             data = json.loads(script_tag.string)
             extract_all_product_links(data, seen, product_link_lst)
         except json.JSONDecodeError:
-            pass
+            logging.warning(f"JSON decode error for {brand_name}")
 
     for a in soup.find_all("a", href=True):
         href = a["href"].replace(" ", "%20")
@@ -78,7 +93,7 @@ def scrape_product(page, link):
     return product_link_lst
 
 
-with open("scraping/data/json/sephora_cookies.json", "r") as f:
+with open("src/ingestion/scraper/sephora_cookies.json", "r") as f:
     cookies = json.load(f)
 
 
@@ -96,7 +111,7 @@ def normalize_cookies(raw_cookies):
     return normalized
 
 
-with open("scraping/data/txt/brand_link.txt", "r") as f:
+with open("data/raw/links/brand_link.txt", "r") as f:
     brand_links = [line.strip() for line in f if line.strip()]
 
 # 🔥 LIMITADOR SEGURO (NO ROMPE NADA)
@@ -133,7 +148,7 @@ with sync_playwright() as p:
             product_link_list = scrape_product(page, brand_link)
 
         if product_link_list is None:
-            print(f"\r Skipping {brand_name} after retries.")
+            logging.warning(f"Skipping {brand_name} after retries.")
             product_link_list = []
 
         all_product_links.extend(product_link_list)
@@ -141,14 +156,17 @@ with sync_playwright() as p:
         ct += 1
 
         if ct % 20 == 0:
-            with open("scraping/data/txt/product_links.txt", "w") as f:
-                f.write("\n".join(all_product_links))
-            print(f"\n Progress saved at brand {ct} ({len(all_product_links)} links so far)")
+            filtered = [l for l in all_product_links if matches_keywords(l)]  # ← add this
+            with open("data/raw/links/product_links.txt", "w") as f:
+                f.write("\n".join(filtered))  # ← and this
 
     browser.close()
 
+all_product_links = [link for link in all_product_links if matches_keywords(link)]
+logging.info(f"After keyword filter: {len(all_product_links)} products")
+# ─────────────────────────────────────────────────────────────────────────────
 
-with open("scraping/data/txt/product_links.txt", "w") as f:
+with open("data/raw/links/product_links.txt", "w") as f:
     f.write("\n".join(all_product_links))
 
-print(f'\nDone! {len(all_product_links)} products saved to scraping/data/txt/product_links.txt')
+logging.info(f'Done! {len(all_product_links)} products saved to data/raw/links/product_links.txt')
