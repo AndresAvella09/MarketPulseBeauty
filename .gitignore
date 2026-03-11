@@ -23,13 +23,6 @@ __pycache__/
 *.pytest_cache/
 .ipynb_checkpoints/
 
-# ─────────────────
-# Datos generados
-# ─────────────────
-data/raw/csv/
-data/raw/json/
-data/raw/links/
-
 # mantener carpetas
 !data/raw/**/.gitkeep
 
