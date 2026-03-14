@@ -12,7 +12,7 @@ BAZAARVOICE_PASSKEY = os.getenv("BAZAARVOICE_PASSKEY")
 # ── Filtering ──────────────────────────────────────────────────────────────────
 # Only scrape product URLs containing at least one of these keywords (case-insensitive).
 # Set to [] to scrape ALL products in the sitemap.
-TARGET_KEYWORDS = []   # e.g. ["hair", "shampoo", "conditioner"]
+TARGET_KEYWORDS = ["hyaluronic", "niacinamide", "sunscreen"]   # e.g. ["hair", "shampoo", "conditioner"]
  
 # ── Pagination / Limits ────────────────────────────────────────────────────────
 PAGE_SIZE              = 100   # max allowed by BV API
@@ -23,5 +23,5 @@ MAX_WORKERS  = 8      # parallel threads — be polite, keep ≤ 10
 DELAY_SECS   = 0.3    # sleep between paginated calls for the same product
  
 # ── Output ─────────────────────────────────────────────────────────────────────
-OUTPUT_FILE = "data/raw/csv/sephora.csv"
- 
+OUTPUT_REVIEWS = "data/raw/csv/sephora_reviews.csv"
+OUTPUT_PRODUCTS = "data/raw/csv/sephora_products.csv"

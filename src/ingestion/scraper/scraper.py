@@ -192,7 +192,6 @@ class SephoraScraper:
                         "IsIncentivized":    is_inc,
                         "IsStaffReview":     is_staff,
                         # reviewer demographics
-                        "UserNickname":      rev.get("UserNickname"),
                         "UserLocation":      rev.get("UserLocation"),
                         "skinTone":          _context_val(rev, "skinTone"),
                         "skinType":          _context_val(rev, "skinType"),
@@ -229,7 +228,8 @@ class SephoraScraper:
         print(f"[*] Fetching reviews for {len(product_ids):,} products "
               f"using {cfg.MAX_WORKERS} threads …")
 
-        all_rows = []
+        all_reviews = []
+        all_products = {} # Use a dict to store unique product info by ID
         done = 0
 
         with ThreadPoolExecutor(max_workers=cfg.MAX_WORKERS) as ex:
@@ -241,25 +241,57 @@ class SephoraScraper:
                 done += 1
                 try:
                     rows = future.result()
-                    all_rows.extend(rows)
+                    if rows:
+                        # 1. Extract Product Meta from the first review row found
+                        # This avoids redundancy in the reviews CSV
+                        p_info = {k: rows[0][k] for k in [
+                            "ProductID", "Brand", "ProductName", "CategoryId", 
+                            "ProductPageUrl", "AvgRating", "TotalReviewCount", 
+                            "RecommendedCount", "TotalPhotoCount", "RatingDist_1", 
+                            "RatingDist_2", "RatingDist_3", "RatingDist_4", "RatingDist_5"
+                        ]}
+                        all_products[pid] = p_info
+
+                        # 2. Extract Review-specific data
+                        # We remove the bulky product info from every review row
+                        review_fields = [
+                            "ProductID", "ReviewID", "Rating", "Title", "ReviewText", 
+                            "SubmissionTime", "LastModTime", "IsRecommended", 
+                            "HelpfulCount", "NotHelpfulCount", "IsFeatured", 
+                            "IsIncentivized", "IsStaffReview", "UserLocation", 
+                            "skinTone", "skinType", "eyeColor", "hairColor", 
+                            "hairType", "hairConcerns", "skinConcerns", "ageRange", 
+                            "ReviewPhotoCount"
+                        ]
+                        
+                        for r in rows:
+                            clean_review = {k: r[k] for k in review_fields}
+                            all_reviews.append(clean_review)
+
                     print(f"  [{done}/{len(product_ids)}] {pid}: {len(rows)} reviews")
                 except Exception as e:
                     print(f"  [{done}/{len(product_ids)}] {pid}: ERROR – {e}")
 
-        if not all_rows:
-            print("[!] No reviews collected.")
-            return
+        # ── write CSVs ──────────────────────────────────────────────────────────
+        
+        # 1. Write Products CSV
+        if all_products:
+            prod_out = cfg.OUTPUT_PRODUCTS
+            p_list = list(all_products.values())
+            with open(prod_out, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=p_list[0].keys())
+                writer.writeheader()
+                writer.writerows(p_list)
+            print(f"[+] {len(p_list)} products written to '{prod_out}'.")
 
-        # ── write CSV ──────────────────────────────────────────────────────────
-        fieldnames = list(all_rows[0].keys())
-        out = cfg.OUTPUT_FILE
-        with open(out, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(all_rows)
-
-        print(f"\n[+] Done! {len(all_rows):,} reviews written to '{out}'.")
-
+        # 2. Write Reviews CSV
+        if all_reviews:
+            rev_out = cfg.OUTPUT_REVIEWS
+            with open(rev_out, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=all_reviews[0].keys())
+                writer.writeheader()
+                writer.writerows(all_reviews)
+            print(f"[+] {len(all_reviews):,} reviews written to '{rev_out}'.")
 
 # ── entry point ────────────────────────────────────────────────────────────────
 
