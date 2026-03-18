@@ -1,48 +1,42 @@
 """
 sephora_scraper.py
 ──────────────────
-Reads products-sitemap.xml  →  calls Bazaarvoice API  →  writes CSV.
+Reads products-sitemap.xml  →  calls Bazaarvoice API  →  returns raw data.
 
-Extracted per review
-────────────────────
-Core        : ProductID, Brand, ProductName, CategoryId,
-              Rating, Title, ReviewText, SubmissionTime,
-              IsRecommended, HelpfulCount, NotHelpfulCount,
-              IsFeatured, IsIncentivized, IsStaffReview
-Reviewer    : UserNickname, UserLocation,
-              skinTone, skinType, eyeColor,
-              hairColor, hairType, hairConcerns, ageRange
-Product     : AvgRating, TotalReviewCount, RecommendedCount,
-              TotalPhotoCount, RatingDist_1..5
+Field definitions live in schema.py — this file never hard-codes column names.
+
+Public surface
+──────────────
+  SephoraScraper().run()  →  (products: dict[pid, dict], reviews: list[dict])
+
+The scraper itself has no I/O side-effects beyond printing progress.
 """
 
-import requests
 import re
-import csv
 import time
 import os
-import json
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import config as cfg
+import requests
 
-# ── helpers ────────────────────────────────────────────────────────────────────
+import config as cfg
+from schema import PRODUCT_FIELDS, REVIEW_FIELDS
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _context_val(rev, field):
-    """Pull the first selected value from ContextDataValues (hair colour, etc.)."""
-    cdv = rev.get("ContextDataValues") or {}
-    entry = cdv.get(field)
+    """Pull the first selected value from ContextDataValues (skinTone, etc.)."""
+    entry = (rev.get("ContextDataValues") or {}).get(field)
     if not entry:
         return None
-    # Value is a dict with ValueLabel
     return entry.get("ValueLabel") or entry.get("Value")
 
 
 def _tag_val(rev, field):
-    """Pull pipe-joined labels from TagDimensions (multi-select fields like hairConcerns)."""
-    td = rev.get("TagDimensions") or {}
-    entry = td.get(field)
+    """Pipe-joined labels from TagDimensions (multi-select: hairConcerns, etc.)."""
+    entry = (rev.get("TagDimensions") or {}).get(field)
     if not entry:
         return None
     values = entry.get("Values") or []
@@ -50,17 +44,16 @@ def _tag_val(rev, field):
 
 
 def _rating_dist(stats):
-    """Return dict RatingDist_1..5 from RatingDistribution list."""
+    """RatingDistribution list  →  flat dict RatingDist_1 … RatingDist_5."""
     out = {f"RatingDist_{i}": 0 for i in range(1, 6)}
     for item in (stats.get("RatingDistribution") or []):
         rv = item.get("RatingValue")
-        ct = item.get("Count", 0)
         if rv:
-            out[f"RatingDist_{rv}"] = ct
+            out[f"RatingDist_{rv}"] = item.get("Count", 0)
     return out
 
 
-# ── scraper ────────────────────────────────────────────────────────────────────
+# ── Scraper ────────────────────────────────────────────────────────────────────
 
 class SephoraScraper:
 
@@ -74,17 +67,16 @@ class SephoraScraper:
             )
         })
 
-    # ── sitemap ────────────────────────────────────────────────────────────────
+    # ── Sitemap ────────────────────────────────────────────────────────────────
 
-    def get_ids_from_local_sitemap(self):
+    def get_ids_from_local_sitemap(self) -> list[str]:
         path = cfg.SITEMAP_LOCAL_PATH
         if not os.path.exists(path):
-            print(f"[!] Sitemap not found at '{path}'. "
-                  "Put products-sitemap.xml in the same folder as this script.")
+            print(f"[!] Sitemap not found at '{path}'.")
             return []
 
         print(f"[*] Parsing {path} …")
-        ids = set()
+        ids: set[str] = set()
         kws = [k.lower() for k in cfg.TARGET_KEYWORDS]
 
         for _, elem in ET.iterparse(path, events=("end",)):
@@ -101,17 +93,17 @@ class SephoraScraper:
 
     # ── API ────────────────────────────────────────────────────────────────────
 
-    def fetch_all_reviews(self, product_id):
-        """Return list-of-dicts, one row per review."""
-        rows = []
+    def _fetch_product_reviews(self, product_id: str) -> list[dict]:
+        """
+        Fetch all pages of reviews for one product.
+        Returns a flat list of raw row dicts (product meta + review fields merged).
+        """
+        rows: list[dict] = []
         offset = 0
         total = None
-        product_meta_cache = None   # fetched once from first page
+        product_meta: dict | None = None
 
-        while True:
-            if offset >= cfg.MAX_REVIEWS_PER_PRODUCT:
-                break
-
+        while offset < cfg.MAX_REVIEWS_PER_PRODUCT:
             params = {
                 "Filter":     [f"contentlocale:en*", f"ProductId:{product_id}"],
                 "Sort":       "SubmissionTime:desc",
@@ -125,9 +117,15 @@ class SephoraScraper:
             }
 
             try:
-                resp = self.session.get(
-                    cfg.BAZAARVOICE_URL, params=params, timeout=20
-                )
+                resp = self.session.get(cfg.BAZAARVOICE_URL, params=params, timeout=20)
+
+                # --- MODIFICATION: Rate Limit Handling ---
+                if resp.status_code == 429:
+                    print(f"[!] 429 Too Many Requests for {product_id}. Sleeping 60s...")
+                    time.sleep(60)
+                    continue  # Retry the current offset after waiting
+                # ----------------------------------------
+
                 if resp.status_code != 200:
                     print(f"[!] {product_id}: HTTP {resp.status_code} at offset {offset}")
                     break
@@ -141,27 +139,27 @@ class SephoraScraper:
                 if total is None:
                     total = data.get("TotalResults", 0)
                     if total == 0:
-                        break   # no reviews at all
+                        break
 
-                # ── product-level metadata (only needed once) ──────────────
-                if product_meta_cache is None:
+                # Product metadata — parsed once from the first page
+                if product_meta is None:
                     pmeta = (
                         data.get("Includes", {})
                             .get("Products", {})
                             .get(product_id, {})
                     )
                     stats = pmeta.get("ReviewStatistics") or {}
-                    rdist = _rating_dist(stats)
-                    product_meta_cache = {
-                        "Brand":             (pmeta.get("Brand") or {}).get("Name"),
-                        "ProductName":       pmeta.get("Name"),
-                        "CategoryId":        pmeta.get("CategoryId"),
-                        "ProductPageUrl":    pmeta.get("ProductPageUrl"),
-                        "AvgRating":         stats.get("AverageOverallRating"),
-                        "TotalReviewCount":  stats.get("TotalReviewCount"),
-                        "RecommendedCount":  stats.get("RecommendedCount"),
-                        "TotalPhotoCount":   stats.get("TotalPhotoCount"),
-                        **rdist,
+                    product_meta = {
+                        "ProductID":        product_id,
+                        "Brand":            (pmeta.get("Brand") or {}).get("Name"),
+                        "ProductName":      pmeta.get("Name"),
+                        "CategoryId":       pmeta.get("CategoryId"),
+                        "ProductPageUrl":   pmeta.get("ProductPageUrl"),
+                        "AvgRating":        stats.get("AverageOverallRating"),
+                        "TotalReviewCount": stats.get("TotalReviewCount"),
+                        "RecommendedCount": stats.get("RecommendedCount"),
+                        "TotalPhotoCount":  stats.get("TotalPhotoCount"),
+                        **_rating_dist(stats),
                     }
 
                 reviews = data.get("Results") or []
@@ -169,42 +167,32 @@ class SephoraScraper:
                     break
 
                 for rev in reviews:
-                    # ── reviewer context data ──────────────────────────────
-                    cdv     = rev.get("ContextDataValues") or {}
-                    is_inc  = (cdv.get("IncentivizedReview") or {}).get("Value")
-                    is_staff= (cdv.get("StaffContext") or {}).get("Value")
-
-                    row = {
-                        # product-level
-                        "ProductID":         product_id,
-                        **product_meta_cache,
-                        # review core
-                        "ReviewID":          rev.get("Id"),
-                        "Rating":            rev.get("Rating"),
-                        "Title":             rev.get("Title"),
-                        "ReviewText":        rev.get("ReviewText"),
-                        "SubmissionTime":    rev.get("SubmissionTime"),
-                        "LastModTime":       rev.get("LastModificationTime"),
-                        "IsRecommended":     rev.get("IsRecommended"),
-                        "HelpfulCount":      rev.get("TotalHelpfulVoteCount"),
-                        "NotHelpfulCount":   rev.get("TotalNegativeFeedbackCount"),
-                        "IsFeatured":        rev.get("IsFeatured"),
-                        "IsIncentivized":    is_inc,
-                        "IsStaffReview":     is_staff,
-                        # reviewer demographics
-                        "UserLocation":      rev.get("UserLocation"),
-                        "skinTone":          _context_val(rev, "skinTone"),
-                        "skinType":          _context_val(rev, "skinType"),
-                        "eyeColor":          _context_val(rev, "eyeColor"),
-                        "hairColor":         _context_val(rev, "hairColor"),
-                        "hairType":          _context_val(rev, "hairType"),
-                        "hairConcerns":      _tag_val(rev, "hairConcerns"),
-                        "skinConcerns":      _tag_val(rev, "skinConcerns"),
-                        "ageRange":          _context_val(rev, "ageRange"),
-                        # photo count on this specific review
-                        "ReviewPhotoCount":  len(rev.get("Photos") or []),
-                    }
-                    rows.append(row)
+                    cdv = rev.get("ContextDataValues") or {}
+                    rows.append({
+                        **product_meta,
+                        "ReviewID":         rev.get("Id"),
+                        "Rating":           rev.get("Rating"),
+                        "Title":            rev.get("Title"),
+                        "ReviewText":       rev.get("ReviewText"),
+                        "SubmissionTime":   rev.get("SubmissionTime"),
+                        "LastModTime":      rev.get("LastModificationTime"),
+                        "IsRecommended":    rev.get("IsRecommended"),
+                        "HelpfulCount":     rev.get("TotalHelpfulVoteCount"),
+                        "NotHelpfulCount":  rev.get("TotalNegativeFeedbackCount"),
+                        "IsFeatured":       rev.get("IsFeatured"),
+                        "IsIncentivized":   (cdv.get("IncentivizedReview") or {}).get("Value"),
+                        "IsStaffReview":    (cdv.get("StaffContext") or {}).get("Value"),
+                        "UserLocation":     rev.get("UserLocation"),
+                        "skinTone":         _context_val(rev, "skinTone"),
+                        "skinType":         _context_val(rev, "skinType"),
+                        "eyeColor":         _context_val(rev, "eyeColor"),
+                        "hairColor":        _context_val(rev, "hairColor"),
+                        "hairType":         _context_val(rev, "hairType"),
+                        "hairConcerns":     _tag_val(rev, "hairConcerns"),
+                        "skinConcerns":     _tag_val(rev, "skinConcerns"),
+                        "ageRange":         _context_val(rev, "ageRange"),
+                        "ReviewPhotoCount": len(rev.get("Photos") or []),
+                    })
 
                 offset += cfg.PAGE_SIZE
                 if offset >= total:
@@ -212,88 +200,48 @@ class SephoraScraper:
 
                 time.sleep(cfg.DELAY_SECS)
 
-            except Exception as e:
-                print(f"[!] {product_id} offset={offset}: {e}")
+            except Exception as exc:
+                print(f"[!] {product_id} offset={offset}: {exc}")
                 break
 
         return rows
 
-    # ── orchestration ──────────────────────────────────────────────────────────
+    # ── Orchestration ──────────────────────────────────────────────────────────
 
-    def run(self):
+    def run(self) -> tuple[dict[str, dict], list[dict]]:
+        """
+        Scrape all products from the sitemap.
+        """
         product_ids = self.get_ids_from_local_sitemap()
         if not product_ids:
-            return
+            return {}, []
 
-        print(f"[*] Fetching reviews for {len(product_ids):,} products "
-              f"using {cfg.MAX_WORKERS} threads …")
+        print(
+            f"[*] Fetching reviews for {len(product_ids):,} products "
+            f"using {cfg.MAX_WORKERS} threads …"
+        )
 
-        all_reviews = []
-        all_products = {} # Use a dict to store unique product info by ID
+        all_products: dict[str, dict] = {}
+        all_reviews:  list[dict]      = []
         done = 0
 
-        with ThreadPoolExecutor(max_workers=cfg.MAX_WORKERS) as ex:
-            future_map = {ex.submit(self.fetch_all_reviews, pid): pid
-                          for pid in product_ids}
+        with ThreadPoolExecutor(max_workers=cfg.MAX_WORKERS) as pool:
+            futures = {pool.submit(self._fetch_product_reviews, pid): pid
+                       for pid in product_ids}
 
-            for future in as_completed(future_map):
-                pid = future_map[future]
+            for future in as_completed(futures):
+                pid   = futures[future]
                 done += 1
                 try:
                     rows = future.result()
                     if rows:
-                        # 1. Extract Product Meta from the first review row found
-                        # This avoids redundancy in the reviews CSV
-                        p_info = {k: rows[0][k] for k in [
-                            "ProductID", "Brand", "ProductName", "CategoryId", 
-                            "ProductPageUrl", "AvgRating", "TotalReviewCount", 
-                            "RecommendedCount", "TotalPhotoCount", "RatingDist_1", 
-                            "RatingDist_2", "RatingDist_3", "RatingDist_4", "RatingDist_5"
-                        ]}
-                        all_products[pid] = p_info
-
-                        # 2. Extract Review-specific data
-                        # We remove the bulky product info from every review row
-                        review_fields = [
-                            "ProductID", "ReviewID", "Rating", "Title", "ReviewText", 
-                            "SubmissionTime", "LastModTime", "IsRecommended", 
-                            "HelpfulCount", "NotHelpfulCount", "IsFeatured", 
-                            "IsIncentivized", "IsStaffReview", "UserLocation", 
-                            "skinTone", "skinType", "eyeColor", "hairColor", 
-                            "hairType", "hairConcerns", "skinConcerns", "ageRange", 
-                            "ReviewPhotoCount"
-                        ]
-                        
-                        for r in rows:
-                            clean_review = {k: r[k] for k in review_fields}
-                            all_reviews.append(clean_review)
-
+                        # Split using field lists from schema.py
+                        all_products[pid] = {k: rows[0][k] for k in PRODUCT_FIELDS}
+                        all_reviews.extend(
+                            {k: row[k] for k in REVIEW_FIELDS} for row in rows
+                        )
                     print(f"  [{done}/{len(product_ids)}] {pid}: {len(rows)} reviews")
-                except Exception as e:
-                    print(f"  [{done}/{len(product_ids)}] {pid}: ERROR – {e}")
+                except Exception as exc:
+                    print(f"  [{done}/{len(product_ids)}] {pid}: ERROR – {exc}")
 
-        # ── write CSVs ──────────────────────────────────────────────────────────
-        
-        # 1. Write Products CSV
-        if all_products:
-            prod_out = cfg.OUTPUT_PRODUCTS
-            p_list = list(all_products.values())
-            with open(prod_out, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=p_list[0].keys())
-                writer.writeheader()
-                writer.writerows(p_list)
-            print(f"[+] {len(p_list)} products written to '{prod_out}'.")
-
-        # 2. Write Reviews CSV
-        if all_reviews:
-            rev_out = cfg.OUTPUT_REVIEWS
-            with open(rev_out, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=all_reviews[0].keys())
-                writer.writeheader()
-                writer.writerows(all_reviews)
-            print(f"[+] {len(all_reviews):,} reviews written to '{rev_out}'.")
-
-# ── entry point ────────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    SephoraScraper().run()
+        return all_products, all_reviews

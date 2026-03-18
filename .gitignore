@@ -1,7 +1,17 @@
 # ─────────────────
 # Datos y CSV (MarketPulse Specific)
 # ─────────────────
+# Ignore all data directories content
+data/raw/
+data/processed/
 
+# Specific data formats
+*.csv
+*.parquet
+*.json
+!sephora_cookies.json  # Exception if you want to keep the template (optional)
+
+# Keep the folder structure but ignore the files
 !data/**/.gitkeep
 logs/*.log
 
@@ -52,3 +62,8 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+# ─────────────────
+# Custom ignores
+# ─────────────────
+environment.yml
