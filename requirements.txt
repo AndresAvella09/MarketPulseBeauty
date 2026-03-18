@@ -13,5 +13,4 @@ streamlit==1.33.0
 pytest==8.1.1
 playwright
 playwright-stealth
-beautifulsoup4
-requests
+dvc[gdrive]
