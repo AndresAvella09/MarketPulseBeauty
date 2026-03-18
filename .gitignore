@@ -1,9 +1,7 @@
 # ─────────────────
 # Datos y CSV (MarketPulse Specific)
 # ─────────────────
-*.csv
-data/raw/
-data/processed/
+
 !data/**/.gitkeep
 logs/*.log
 
