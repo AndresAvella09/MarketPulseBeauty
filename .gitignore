@@ -1,4 +1,4 @@
-# ─────────────────
+	# ─────────────────
 # Datos y CSV (MarketPulse Specific)
 # ─────────────────
 
@@ -52,3 +52,18 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+# Local parquet data (do not commit)
+*.parquet
+data/local/
+data/bronze/
+data/silver/
+data/gold/
+# BEGIN LOCAL_PARQUET_DATA
+# Local parquet data (do not commit)
+*.parquet
+data/local/
+data/bronze/
+data/silver/
+data/gold/
+# END LOCAL_PARQUET_DATA
