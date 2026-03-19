@@ -15,3 +15,5 @@ playwright
 playwright-stealth
 beautifulsoup4
 requests
+pyarrow
+dvc[gdrive]
