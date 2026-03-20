@@ -1,0 +1,6 @@
+outs:
+- md5: d1df53ab09a6fe115abc34a51e5d40b7.dir
+  size: 623399
+  nfiles: 1
+  hash: md5
+  path: products
