@@ -1,19 +1,13 @@
 # ─────────────────
-# Datos y CSV (MarketPulse Specific)
+# Datos (DVC)
 # ─────────────────
-# Ignore all data directories content
-data/raw/
-data/processed/
+# Ignorar todos los datos
+data/*
 
-# Specific data formats
-*.csv
-*.parquet
-*.json
-!sephora_cookies.json  # Exception if you want to keep the template (optional)
-
-# Keep the folder structure but ignore the files
+# PERO permitir archivos DVC y estructura
+!data/**/*.dvc
+!data/**/.gitignore
 !data/**/.gitkeep
-logs/*.log
 
 # ─────────────────
 # Entorno virtual
@@ -41,12 +35,17 @@ ENV/
 .ipynb_checkpoints/
 
 # ─────────────────
-# Archivos sensibles & Scraping
+# Logs & temporales
+# ─────────────────
+*.log
+*.tmp
+logs/
+
+# ─────────────────
+# Archivos sensibles (scraping)
 # ─────────────────
 sephora_cookies.json
 src/**/sephora_cookies.json
-*.log
-*.tmp
 
 # ─────────────────
 # OS & IDE
@@ -64,6 +63,6 @@ dist/
 *.egg-info/
 
 # ─────────────────
-# Custom ignores
+# Custom
 # ─────────────────
 environment.yml
