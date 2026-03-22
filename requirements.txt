@@ -14,3 +14,8 @@ pytest==8.1.1
 playwright
 playwright-stealth
 dvc[gdrive]
+pyarrow
+python-dotenv
+cupy
+torch
+sentence-transformers

@@ -39,6 +39,12 @@ pip install "torch>=2.6.0" --index-url https://download.pytorch.org/whl/cu121 --
 python -c "import torch; print(torch.cuda.get_device_name(0))"
 ```
 
+El primer comando me daba error y lo solucioné con este:
+```
+pip install "torch>=2.5.0" --index-url https://download.pytorch.org/whl/cu121
+```
+
+
 ### 4. Download the spaCy model
 
 ```bash
