@@ -1,5 +1,5 @@
-# ─────────────────
-# Datos (DVC)
+	# ─────────────────
+# Datos y CSV (MarketPulse Specific)
 # ─────────────────
 # Ignorar todos los datos
 data/*
@@ -62,7 +62,17 @@ build/
 dist/
 *.egg-info/
 
-# ─────────────────
-# Custom
-# ─────────────────
-environment.yml
+# Local parquet data (do not commit)
+*.parquet
+data/local/
+data/bronze/
+data/silver/
+data/gold/
+# BEGIN LOCAL_PARQUET_DATA
+# Local parquet data (do not commit)
+*.parquet
+data/local/
+data/bronze/
+data/silver/
+data/gold/
+# END LOCAL_PARQUET_DATA
