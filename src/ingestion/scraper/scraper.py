@@ -20,8 +20,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-import config as cfg
-from schema import PRODUCT_FIELDS, REVIEW_FIELDS
+from . import config as cfg
+from .schema import PRODUCT_FIELDS, REVIEW_FIELDS
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

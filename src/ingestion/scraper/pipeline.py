@@ -32,11 +32,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import config as cfg
-from scraper import SephoraScraper
-from bronze_ingestion import ingest, load_products_csv, load_reviews_csv
-from silver_transform import transform as silver_transform
-from gold_transform import build_gold
+from . import config as cfg
+from .scraper import SephoraScraper
+from .bronze_ingestion import ingest, load_products_csv, load_reviews_csv
+from .silver_transform import transform as silver_transform
+from .gold_transform import build_gold
 
 
 # ── CSV backup ─────────────────────────────────────────────────────────────────

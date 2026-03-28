@@ -44,8 +44,22 @@ import pyarrow.compute as pc
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-from cleaning import load_nlp, clean_batch
-from schema import SILVER_PRODUCTS_SCHEMA, SILVER_REVIEWS_SCHEMA
+from .cleaning import load_nlp, clean_batch
+from .schema import SILVER_PRODUCTS_SCHEMA, SILVER_REVIEWS_SCHEMA
+
+# ── Data contracts (mandatory preliminary gate) ────────────────────────────────
+try:
+    from src.processing.data_contracts import enforce_contracts, ContractViolationError
+    _CONTRACTS_AVAILABLE = True
+except ImportError:
+    # Graceful fallback if module path differs — show a clear warning
+    import warnings
+    warnings.warn(
+        "data_contracts module not found at src/processing/data_contracts.py. "
+        "Contract validation will be SKIPPED. Add the module to enable the gate.",
+        stacklevel=2,
+    )
+    _CONTRACTS_AVAILABLE = False
 
 
 # ── GPU setup ──────────────────────────────────────────────────────────────────
@@ -124,6 +138,56 @@ def _read_bronze(bronze_dir: str, table_name: str, date_filter: str | None) -> p
 
     print(f"  [bronze/{table_name}] {len(table):,} rows loaded")
     return table
+
+
+# ── Deduplication ─────────────────────────────────────────────────────────────
+#
+# Bronze is append-only so multiple scrape runs produce duplicate ReviewIDs.
+# Strategy: for each ReviewID keep the row with the latest _ingestion_ts.
+# This runs in pure PyArrow (no pandas) so it stays in the Arrow columnar path.
+
+def _dedup_reviews(table: pa.Table) -> pa.Table:
+    """
+    Deduplicate reviews by ReviewID, keeping the row with the latest
+    _ingestion_ts.  Nulls in ReviewID are preserved as-is (they will fail
+    the critical_fields_no_nulls contract separately).
+
+    Returns a new table; never mutates the input.
+    """
+    import pyarrow.compute as pc
+
+    n_before = len(table)
+    if "ReviewID" not in table.schema.names or "_ingestion_ts" not in table.schema.names:
+        return table
+
+    # Add a row-index column so we can identify which rows to keep
+    row_idx = pa.array(range(n_before), pa.int64())
+    table   = table.append_column("_row_idx", row_idx)
+
+    review_ids = table["ReviewID"].to_pylist()
+    ing_ts     = table["_ingestion_ts"].to_pylist()
+
+    # Build a map: ReviewID → index of the latest-ingested row
+    best: dict[str, int] = {}
+    for i, (rid, ts) in enumerate(zip(review_ids, ing_ts)):
+        if rid is None:
+            continue
+        if rid not in best or (ts is not None and ts > ing_ts[best[rid]]):
+            best[rid] = i
+
+    # Also keep rows with null ReviewIDs (will surface as a contract failure)
+    null_indices = [i for i, rid in enumerate(review_ids) if rid is None]
+    keep_indices = sorted(set(best.values()) | set(null_indices))
+
+    kept  = table.take(keep_indices).remove_column(table.schema.get_field_index("_row_idx"))
+    n_after = len(kept)
+
+    if n_before != n_after:
+        print(f"  [dedup] {n_before:,} → {n_after:,} rows  ({n_before - n_after:,} duplicates removed)")
+    else:
+        print(f"  [dedup] No duplicates found ({n_after:,} rows)")
+
+    return kept
 
 
 # ── NLP enrichment ─────────────────────────────────────────────────────────────
@@ -273,15 +337,17 @@ def transform(
     bronze_dir:  str = "./data/raw/bronze",
     silver_dir:  str = "./data/processed/silver",
     bronze_date: str | None = None,
+    fail_on_contract_violation: bool = True,
 ) -> dict:
     """
     Run the Bronze → Silver transformation.
 
     Parameters
     ----------
-    bronze_dir  : root of the bronze lake
-    silver_dir  : root of the silver lake
-    bronze_date : optional YYYY-MM-DD to process a single ingestion_date partition
+    bronze_dir                 : root of the bronze lake
+    silver_dir                 : root of the silver lake
+    bronze_date                : optional YYYY-MM-DD to process one ingestion_date partition
+    fail_on_contract_violation : if True (default), abort when critical contracts fail
 
     Returns
     -------
@@ -294,16 +360,42 @@ def transform(
     print(f"  Silver Transform  |  silver_run_id={_SILVER_RUN_ID}")
     print(f"{'─'*60}\n")
 
-    print("[0/3] Detecting GPU …")
+    print("[0/4] Detecting GPU …")
     _GPU_AVAILABLE = _setup_gpu()
 
-    print("[1/3] Loading spaCy model …")
+    print("[1/4] Loading spaCy model …")
     nlp = load_nlp()
 
     written = {}
 
+    # ── Step 2: Data Contract Gate (mandatory preliminary step) ────────────────
+    # Reads Bronze reviews once here, validates against all contracts, and either
+    # aborts (fail_on_contract_violation=True) or warns and continues.
+    # The quality report is written to <silver_dir>/../quality_report.json.
+    print("\n[2/4] Running data contract gate …")
+    _pre_reviews = _read_bronze(bronze_dir, "reviews", bronze_date)
+
+    if _CONTRACTS_AVAILABLE and _pre_reviews is not None:
+        report_path = str(Path(silver_dir).parent / "quality_report.json")
+        try:
+            enforce_contracts(
+                reviews=_pre_reviews,
+                report_path=report_path,
+                run_id=_SILVER_RUN_ID,
+            )
+            print("[contract] ✓ All critical contracts passed — proceeding to NLP.")
+        except ContractViolationError as exc:
+            if fail_on_contract_violation:
+                print(f"\n[contract] ✗ Pipeline aborted by contract violation.")
+                raise
+            print(f"[contract] ⚠  Violations detected (fail_on_contract_violation=False), continuing …\n{exc}")
+    elif not _CONTRACTS_AVAILABLE:
+        print("[contract] ⚠  data_contracts module not available — gate skipped.")
+    else:
+        print("[contract] ⚠  No review data found — gate skipped.")
+
     # ── Products ───────────────────────────────────────────────────────────────
-    print("\n[2/3] Processing products …")
+    print("\n[3/4] Processing products …")
     prod_table = _read_bronze(bronze_dir, "products", bronze_date)
     if prod_table is not None and len(prod_table) > 0:
         enriched = _enrich_products(nlp, prod_table)
@@ -312,9 +404,12 @@ def transform(
         print("  [skip] no product rows found in bronze")
 
     # ── Reviews ────────────────────────────────────────────────────────────────
-    print("\n[3/3] Processing reviews …")
-    rev_table = _read_bronze(bronze_dir, "reviews", bronze_date)
+    # Re-use the pre-loaded table so we don't read Bronze twice.
+    print("\n[4/4] Processing reviews …")
+    rev_table = _pre_reviews if _pre_reviews is not None else _read_bronze(bronze_dir, "reviews", bronze_date)
     if rev_table is not None and len(rev_table) > 0:
+        print(f"  [dedup] Deduplicating {len(rev_table):,} Bronze reviews by ReviewID …")
+        rev_table = _dedup_reviews(rev_table)
         enriched = _enrich_reviews(nlp, rev_table)
         written["reviews"] = _write_silver_reviews(enriched, silver_dir)
     else:

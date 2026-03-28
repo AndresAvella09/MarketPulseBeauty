@@ -38,7 +38,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.compute as pc
 
-from schema import PRODUCTS_SCHEMA, REVIEWS_SCHEMA
+from .schema import PRODUCTS_SCHEMA, REVIEWS_SCHEMA
 
 
 # ── Type coercions ─────────────────────────────────────────────────────────────

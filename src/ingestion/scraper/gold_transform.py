@@ -35,7 +35,7 @@ Gold analytics tables
 
 Embedding model
 ───────────────
-Default: sentence-transformers all-MiniLM-L6-v2 (384-dim)
+Default: sentence-transformers BAAI/bge-m3 (384-dim)
   pip install sentence-transformers
 
 Fallback: spaCy en_core_web_md (300-dim) if sentence-transformers missing
@@ -63,7 +63,7 @@ import pyarrow.compute as pc
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-from schema import (
+from .schema import (
     GOLD_REVIEWS_SCHEMA,
     GOLD_PRODUCTS_SCHEMA,
 )
@@ -102,7 +102,7 @@ _EMBED_DIM   = None
 _EMBED_TYPE  = None   # "sbert" | "spacy"
 
 
-def load_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
+def load_embedding_model(model_name: str = "BAAI/bge-m3"):
     """
     Load embedding model once and cache it globally.
     Automatically runs on GPU (CUDA/MPS) if available, otherwise CPU.
@@ -510,7 +510,7 @@ def drop_empty_columns(table: pa.Table) -> pa.Table:
 def build_gold(
     silver_dir: str = "./data/processed/silver",
     gold_dir:   str = "./data/processed/gold",
-    model_name: str = "all-MiniLM-L6-v2",
+    model_name: str = "BAAI/bge-m3",
     batch_size: int = 256,
 ) -> dict:
     global _DEVICE
@@ -576,7 +576,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Silver -> Gold (embeddings + analytics).")
     parser.add_argument("--silver",     default="./data/processed/silver")
     parser.add_argument("--gold",       default="./data/processed/gold")
-    parser.add_argument("--model",      default="all-MiniLM-L6-v2")
+    parser.add_argument("--model",      default="BAAI/bge-m3")
     parser.add_argument("--batch-size", default=256, type=int)
     args = parser.parse_args()
 
