@@ -40,10 +40,10 @@ python -c "import torch; print(torch.cuda.get_device_name(0))"
 ```
 
 El primer comando me daba error y lo solucioné con este:
+
 ```
 pip install "torch>=2.5.0" --index-url https://download.pytorch.org/whl/cu121
 ```
-
 
 ### 4. Download the spaCy model
 
@@ -66,11 +66,11 @@ conda activate embed_env
 
 ```bash
 # Full pipeline (scrape → bronze → silver → gold)
-python pipeline.py
+python -m src.ingestion.scraper.pipeline
 
 # Individual stages
-python pipeline.py --silver-only
-python pipeline.py --gold-only
+python -m src.ingestion.scraper.pipeline --silver-only
+python -m src.ingestion.scraper.pipeline --gold-only
 
 # Process a specific ingestion date
 python silver_transform.py --bronze-date 2026-03-18
