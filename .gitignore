@@ -54,3 +54,11 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+# Local parquet data (do not commit)
+*.parquet
+data/local/
+data/bronze/
+data/silver/
+data/gold/
+
