@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
+from src.processing.health_score import compute_health_score
 
 st.set_page_config(page_title="MarketPulse Beauty", layout="wide")
 
@@ -18,23 +19,6 @@ def to_datetime_safe(s: pd.Series) -> pd.Series:
     except Exception:
         return dt
 
-def compute_health_score(prod_reviews: pd.DataFrame, prod_row: pd.Series | None) -> float:
-    """
-    Health score (0..100) simple y defendible con tus columnas:
-    - 70% rating promedio por reseña (Rating)
-    - 30% % recomendación (IsRecommended) si existe
-    """
-    rating_part = 0.0
-    if "Rating" in prod_reviews.columns and prod_reviews["Rating"].notna().any():
-        rating_part = float(prod_reviews["Rating"].mean()) / 5.0  # 0..1
-
-    rec_part = 0.5
-    if "IsRecommended" in prod_reviews.columns and prod_reviews["IsRecommended"].notna().any():
-        # viene booleano → promedio = % true
-        rec_part = float(prod_reviews["IsRecommended"].astype(bool).mean())
-
-    score = 100.0 * (0.70 * rating_part + 0.30 * rec_part)
-    return max(0.0, min(100.0, score))
 
 st.title("MarketPulse Beauty — Streamlit Prototype (Issue #29)")
 
