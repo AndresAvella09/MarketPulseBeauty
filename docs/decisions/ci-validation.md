@@ -1,23 +1,23 @@
-# CI validation workflow
+# Flujo de validación de CI
 
-## What the workflow validates
-- Environment setup from requirements.txt using a fixed Python version.
-- Data contracts validation using synthetic samples in tests/sample_data.
-- Import checks for critical modules to catch syntax and dependency issues early.
-- Unit tests with coverage thresholds for critical modules.
+## Qué valida el flujo de trabajo
+- Configuración del entorno a partir de requirements.txt usando una versión fija de Python.
+- Validación de contratos de datos utilizando muestras sintéticas en tests/sample_data.
+- Verificación de imports para módulos críticos para detectar problemas de sintaxis y dependencias de forma temprana.
+- Pruebas unitarias con umbrales de cobertura para módulos críticos.
 
-## Why these checks were chosen
-- Dependency installation confirms requirements.txt is complete and reproducible.
-- Data contracts validation ensures pipeline assumptions hold before processing.
-- Import checks detect broken modules without running full scripts.
-- Coverage thresholds protect core logic from silent regressions.
+## Por qué se eligieron estas verificaciones
+- La instalación de dependencias confirma que requirements.txt está completo y es reproducible.
+- La validación de contratos de datos asegura que los supuestos del pipeline se cumplen antes del procesamiento.
+- Las verificaciones de imports detectan módulos rotos sin ejecutar scripts completos.
+- Los umbrales de cobertura protegen la lógica central de regresiones silenciosas.
 
-## Problems this prevents
-- Missing or outdated dependencies in CI or new environments.
-- Invalid review or trends data passing downstream steps.
-- Syntax errors or missing imports in critical modules.
-- Uncovered changes in health score, data contracts, and text cleaning logic.
+## Problemas que esto previene
+- Dependencias faltantes o desactualizadas en CI o en nuevos entornos.
+- Datos inválidos de reseñas o tendencias que pasan a etapas posteriores.
+- Errores de sintaxis o imports faltantes en módulos críticos.
+- Cambios sin cobertura en health score, contratos de datos y lógica de limpieza de texto.
 
-## Notes
-- Sample data lives in tests/sample_data and is designed to be small and fast.
-- If CI times grow, consider splitting heavy dependencies into extras.
+## Notas
+- Los datos de muestra se encuentran en tests/sample_data y están diseñados para ser pequeños y rápidos.
+- Si los tiempos de CI aumentan, considera dividir las dependencias pesadas en extras.
