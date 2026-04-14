@@ -1,4 +1,5 @@
 # Marketpulse Beauty
+![CI](https://github.com/AndresAvella09/MarketPulseBeauty/actions/workflows/ci.yml/badge.svg?branch=main)
 
 Retail Intelligence Dashboard para productos de belleza y cuidado personal
 
