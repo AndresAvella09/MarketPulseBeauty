@@ -81,3 +81,25 @@ dist/
 # ─────────────────────────────
 airflow/logs/
 airflow/dags/__pycache__/
+
+# ─────────────────────────────
+# CLAUDE CODE
+# ─────────────────────────────
+.claude/
+mem_log.txt
+
+# ─────────────────────────────
+# NOTEBOOKS OUTPUT
+# ─────────────────────────────
+notebooks/.ipynb_checkpoints/
+
+# ─────────────────────────────
+# MISC / TEMP
+# ─────────────────────────────
+*.docx
+*.xlsx
+*.png
+*.jpg
+*.jpeg
+image.png
+architecture_diagram.html
