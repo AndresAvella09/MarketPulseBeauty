@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 from nltk.sentiment import SentimentIntensityAnalyzer
+from src.processing.health_score import compute_health_score
 
 st.set_page_config(page_title="MarketPulse Beauty", layout="wide")
 
@@ -110,6 +111,73 @@ def build_alerts(weekly: pd.DataFrame, threshold: float) -> pd.DataFrame:
     w["drop"] = w["prev_health"] - w["health_score"]
     return w[w["drop"] >= threshold].copy().sort_values(["drop", "week"], ascending=[False, False])
 
+def build_context(product_name, prod_df, prod_week, latest_health, delta):
+    lines = []
+    tone = "info"
+
+    rating_avg = float(prod_df["Rating"].mean()) if prod_df["Rating"].notna().any() else None
+    total_reviews = len(prod_df)
+
+    dominant_sentiment = (
+        prod_df["sentiment_label"].mode().iloc[0]
+        if not prod_df.empty and prod_df["sentiment_label"].notna().any()
+        else "neutral"
+    )
+
+    polarization = None
+    if "polarization_score" in prod_df.columns and prod_df["polarization_score"].notna().any():
+        polarization = float(prod_df["polarization_score"].dropna().iloc[0])
+
+    if latest_health >= 80:
+        lines.append(f"**{product_name}** muestra un estado general fuerte, con un Health Score alto.")
+        tone = "success"
+    elif latest_health >= 60:
+        lines.append(f"**{product_name}** muestra un desempeño estable, aunque con margen de mejora.")
+        tone = "info"
+    else:
+        lines.append(f"**{product_name}** presenta señales de riesgo y requiere revisión prioritaria.")
+        tone = "warning"
+
+    if delta is not None:
+        if delta > 3:
+            lines.append(f"En la última comparación semanal, el Health Score subió **{delta:.1f} puntos**, lo que sugiere una mejora reciente.")
+        elif delta < -3:
+            lines.append(f"En la última comparación semanal, el Health Score cayó **{abs(delta):.1f} puntos**, lo que indica deterioro reciente.")
+        else:
+            lines.append("El Health Score se mantuvo relativamente estable entre las últimas semanas.")
+
+    if dominant_sentiment == "positive":
+        lines.append("El sentimiento dominante en las reseñas del rango actual es **positivo**, lo que respalda la percepción favorable del producto.")
+    elif dominant_sentiment == "negative":
+        lines.append("El sentimiento dominante en las reseñas del rango actual es **negativo**, lo que puede explicar señales de deterioro.")
+    else:
+        lines.append("El sentimiento dominante en las reseñas del rango actual es **neutral**, sin una inclinación fuerte.")
+
+    if rating_avg is not None:
+        if rating_avg >= 4.2:
+            lines.append(f"El rating promedio actual es **{rating_avg:.2f}**, lo que sugiere una recepción sólida por parte de los usuarios.")
+        elif rating_avg >= 3.5:
+            lines.append(f"El rating promedio actual es **{rating_avg:.2f}**, indicando una experiencia aceptable pero no sobresaliente.")
+        else:
+            lines.append(f"El rating promedio actual es **{rating_avg:.2f}**, señalando una experiencia más problemática.")
+
+    if polarization is not None:
+        if polarization >= 0.75:
+            lines.append(f"La polarización del producto es **alta ({polarization:.3f})**, por lo que conviene revisar si existen opiniones muy divididas.")
+        elif polarization >= 0.5:
+            lines.append(f"La polarización del producto es **media ({polarization:.3f})**, con cierta dispersión en la experiencia del usuario.")
+        else:
+            lines.append(f"La polarización del producto es **baja ({polarization:.3f})**, lo que indica una percepción más consistente.")
+
+    if total_reviews >= 500:
+        lines.append(f"El análisis se apoya en un volumen alto de reseñas (**{total_reviews}**), por lo que la lectura actual es más confiable.")
+    elif total_reviews >= 100:
+        lines.append(f"El análisis se apoya en un volumen moderado de reseñas (**{total_reviews}**).")
+    else:
+        lines.append(f"El volumen de reseñas dentro del rango actual es reducido (**{total_reviews}**), así que la interpretación debe tomarse con cautela.")
+
+    return tone, lines
+
 st.title("MarketPulse Beauty Dashboard")
 
 with st.sidebar:
@@ -206,6 +274,8 @@ if view == "Producto":
     prev_health = float(prod_week["health_score"].iloc[-2]) if len(prod_week) >= 2 else None
     delta = latest_health - prev_health if prev_health is not None else None
 
+    st.subheader("Resumen ejecutivo")
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Rating promedio", f"{prod_df['Rating'].mean():.2f}" if prod_df["Rating"].notna().any() else "N/A")
     c2.metric("AvgRating producto", f"{prod_df['AvgRating'].dropna().iloc[0]:.2f}" if "AvgRating" in prod_df.columns and prod_df["AvgRating"].notna().any() else "N/A")
@@ -244,6 +314,50 @@ if view == "Producto":
     st.divider()
 
     st.subheader("Trends")
+    tone, context_lines = build_context(selected_name, prod_df, prod_week, latest_health, delta)
+    if tone == "success":
+        st.success(context_lines[0])
+    elif tone == "warning":
+        st.warning(context_lines[0])
+    else:
+        st.info(context_lines[0])
+
+    st.divider()
+
+    st.subheader("Qué cambió recientemente")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if not prod_week.empty:
+            st.caption("Rating promedio semanal")
+            st.line_chart(prod_week.set_index("week")[["rating_avg"]], height=260)
+        else:
+            st.info("No hay semanas suficientes para graficar el rating.")
+
+    with col2:
+        if not prod_week.empty:
+            st.caption("Health Score semanal")
+            st.line_chart(prod_week.set_index("week")[["health_score"]], height=260)
+        else:
+            st.info("No hay semanas suficientes para graficar el Health Score.")
+
+    st.divider()
+
+    st.subheader("Qué explica el estado actual del producto")
+
+    ctx_col1, ctx_col2 = st.columns([1.2, 1])
+    with ctx_col1:
+        st.markdown("\n".join(context_lines[1:] if len(context_lines) > 1 else context_lines))
+
+    with ctx_col2:
+        st.caption("Distribución de sentimiento")
+        sent_counts = prod_df["sentiment_label"].value_counts()
+        st.bar_chart(sent_counts, height=240)
+
+    st.divider()
+
+    st.subheader("Contexto de tendencia")
+
     kw_list = sorted(tr["keyword"].unique().tolist()) if not tr.empty else []
     default_kw = infer_keyword_from_name(selected_name)
     if kw_list:
@@ -257,6 +371,8 @@ if view == "Producto":
     st.divider()
 
     st.subheader("Alertas")
+    st.subheader("Riesgos y alertas")
+
     if alerts.empty:
         st.info("No hay alertas con el umbral actual.")
     else:
@@ -271,6 +387,12 @@ if view == "Producto":
             "n_reviews": "#Reviews semana"
         })
         st.dataframe(alerts_show, use_container_width=True)
+
+    st.divider()
+
+    st.subheader("Detalle de reseñas")
+    detail_cols = [c for c in ["ReviewID", "Rating", "Title", "ReviewText", "SubmissionTime", "sentiment_label", "sentiment_score"] if c in prod_df.columns]
+    st.dataframe(prod_df[detail_cols].head(100), use_container_width=True)
 
 else:
     prod_list = (
