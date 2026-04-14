@@ -28,6 +28,7 @@ Output layout
 """
 
 import csv
+import io
 import json
 import os
 import uuid
@@ -39,6 +40,49 @@ import pyarrow.parquet as pq
 import pyarrow.compute as pc
 
 from .schema import PRODUCTS_SCHEMA, REVIEWS_SCHEMA
+
+# ── MinIO toggle ──────────────────────────────────────────────────────────────
+
+def _use_minio() -> bool:
+    """Read USE_MINIO at call time so the env var is always current."""
+    return os.getenv("USE_MINIO", "false").lower() in ("true", "1", "yes")
+
+# Backwards-compatible alias used by pipeline.py
+USE_MINIO = _use_minio
+
+
+def _get_s3_client():
+    """Create a boto3 S3 client pointing at MinIO."""
+    import boto3
+    return boto3.client(
+        "s3",
+        endpoint_url=os.getenv("MINIO_ENDPOINT", "http://localhost:9000"),
+        aws_access_key_id=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
+        aws_secret_access_key=os.getenv("MINIO_SECRET_KEY", "minioadmin123"),
+    )
+
+
+def _write_parquet_to_minio(table: pa.Table, bucket: str, key: str):
+    """Write a PyArrow table as Parquet bytes to a MinIO bucket."""
+    buf = io.BytesIO()
+    pq.write_table(table, buf, compression="snappy", write_statistics=True, coerce_timestamps="ms")
+    buf.seek(0)
+    s3 = _get_s3_client()
+    s3.put_object(Bucket=bucket, Key=key, Body=buf.getvalue())
+    print(f"  [+] s3://{bucket}/{key}")
+
+
+def _write_csv_to_minio(rows: list[dict], bucket: str, key: str):
+    """Write a list of dicts as CSV bytes to a MinIO bucket."""
+    if not rows:
+        return
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=rows[0].keys())
+    writer.writeheader()
+    writer.writerows(rows)
+    s3 = _get_s3_client()
+    s3.put_object(Bucket=bucket, Key=key, Body=buf.getvalue().encode("utf-8"))
+    print(f"  [backup] {len(rows):,} rows → s3://{bucket}/{key}")
 
 
 # ── Type coercions ─────────────────────────────────────────────────────────────
@@ -71,8 +115,8 @@ def _to_ts(v):
         return v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v
     if v in (None, "", "None"):
         return None
-    
-    # NEW: Python 3.11+ native ISO parsing (handles Bazaarvoice offsets perfectly)
+
+    # Python 3.11+ native ISO parsing (handles Bazaarvoice offsets perfectly)
     try:
         dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
         return dt.astimezone(timezone.utc)
@@ -94,9 +138,6 @@ def _to_ts(v):
 
 
 # ── Row normalisers ────────────────────────────────────────────────────────────
-#
-# Accept a raw dict (from scraper OR from csv.DictReader) and return a dict
-# whose keys/types match the corresponding PyArrow schema in schema.py.
 
 def _normalise_product(raw: dict, run_id: str, ts: datetime, source: str) -> dict:
     return {
@@ -199,7 +240,7 @@ def validate(table: pa.Table, name: str) -> dict:
         check("ProductID_unique",
               total - len(set(table["ProductID"].to_pylist())) == 0)
         null_name = pc.sum(pc.is_null(table["ProductName"])).as_py()
-        check("ProductName_fill≥95%", (total - null_name) / total >= 0.95)
+        check("ProductName_fill>=95%", (total - null_name) / total >= 0.95)
 
     elif name == "reviews":
         null_rid = pc.sum(pc.is_null(table["ReviewID"])).as_py()
@@ -212,7 +253,7 @@ def validate(table: pa.Table, name: str) -> dict:
         )
         check("Rating_in_1_to_5", bad == 0)
         null_text = pc.sum(pc.is_null(table["ReviewText"])).as_py()
-        check("ReviewText_fill≥80%", (total - null_text) / total >= 0.80)
+        check("ReviewText_fill>=80%", (total - null_text) / total >= 0.80)
 
     return report
 
@@ -228,15 +269,27 @@ def _write_parquet(table: pa.Table, dest: Path):
     )
 
 def write_products(table: pa.Table, base_dir: str, date_str: str, run_id: str) -> str:
+    key = f"products/ingestion_date={date_str}/products_{run_id}.parquet"
+
+    if _use_minio():
+        _write_parquet_to_minio(table, "marketpulse-bronze", key)
+        return f"s3://marketpulse-bronze/{key}"
+
     dest = Path(base_dir) / "products" / f"ingestion_date={date_str}"
     dest.mkdir(parents=True, exist_ok=True)
     out = dest / f"products_{run_id}.parquet"
     _write_parquet(table, out)
-    print(f"  [+] products → {out}  ({len(table):,} rows)")
+    print(f"  [+] products -> {out}  ({len(table):,} rows)")
     return str(out)
 
 def write_reviews(table: pa.Table, base_dir: str, date_str: str, run_id: str) -> list[str]:
     written = []
+
+    if _use_minio():
+        key = f"reviews/ingestion_date={date_str}/reviews_{run_id}.parquet"
+        _write_parquet_to_minio(table, "marketpulse-bronze", key)
+        written.append(f"s3://marketpulse-bronze/{key}")
+        return written
 
     # Partition by CategoryId when available (enriched via JOIN with products)
     if "CategoryId" in table.schema.names:
@@ -252,31 +305,43 @@ def write_reviews(table: pa.Table, base_dir: str, date_str: str, run_id: str) ->
             dest.mkdir(parents=True, exist_ok=True)
             out = dest / f"reviews_{run_id}.parquet"
             _write_parquet(table.filter(mask), out)
-            print(f"  [+] reviews [{cat}] → {out}  ({table.filter(mask).num_rows:,} rows)")
+            print(f"  [+] reviews [{cat}] -> {out}  ({table.filter(mask).num_rows:,} rows)")
             written.append(str(out))
     else:
         dest = Path(base_dir) / "reviews" / f"ingestion_date={date_str}"
         dest.mkdir(parents=True, exist_ok=True)
         out = dest / f"reviews_{run_id}.parquet"
         _write_parquet(table, out)
-        print(f"  [+] reviews → {out}  ({len(table):,} rows)")
+        print(f"  [+] reviews -> {out}  ({len(table):,} rows)")
         written.append(str(out))
 
     return written
 
 def write_quality_report(reports: list[dict], base_dir: str, run_id: str) -> str:
-    dest = Path(base_dir) / "_quality_reports"
-    dest.mkdir(parents=True, exist_ok=True)
-    out = dest / f"report_{run_id}.json"
     payload = {
         "run_id":        run_id,
         "generated_at":  datetime.now(timezone.utc).isoformat(),
         "reports":       reports,
         "overall_pass":  all(r["passed"] for r in reports),
     }
+    status = "PASSED" if payload["overall_pass"] else "FAILED"
+
+    if _use_minio():
+        key = f"_quality_reports/report_{run_id}.json"
+        s3 = _get_s3_client()
+        s3.put_object(
+            Bucket="marketpulse-bronze",
+            Key=key,
+            Body=json.dumps(payload, indent=2).encode("utf-8"),
+        )
+        print(f"  [{status}] quality report -> s3://marketpulse-bronze/{key}")
+        return f"s3://marketpulse-bronze/{key}"
+
+    dest = Path(base_dir) / "_quality_reports"
+    dest.mkdir(parents=True, exist_ok=True)
+    out = dest / f"report_{run_id}.json"
     out.write_text(json.dumps(payload, indent=2))
-    status = "✓ PASSED" if payload["overall_pass"] else "✗ FAILED"
-    print(f"  [{status}] quality report → {out}")
+    print(f"  [{status}] quality report -> {out}")
     return str(out)
 
 
@@ -298,7 +363,7 @@ def ingest(
     products        : list of product-level dicts (keys = PRODUCT_FIELDS)
     reviews         : list of review-level dicts  (keys = REVIEW_FIELDS)
     bronze_dir      : root directory for the medallion lake
-    run_id          : optional — supplied by pipeline.py for traceability
+    run_id          : optional -- supplied by pipeline.py for traceability
     source          : label stamped in _source_file audit column
     fail_on_quality : raise RuntimeError on critical quality failures
 
@@ -312,20 +377,21 @@ def ingest(
     quality_rps = []
     written     = {}
 
-    print(f"\n{'─'*60}")
+    print(f"\n{'='*60}")
     print(f"  Bronze Ingest  |  run_id={run_id}  |  {date_str}  |  src={source}")
-    print(f"{'─'*60}")
+    print(f"{'='*60}")
 
     # ── Products ───────────────────────────────────────────────────────────────
     if products:
-        print(f"\n[products] normalising {len(products):,} rows …")
+        print(f"\n[products] normalising {len(products):,} rows ...")
         norm = [_normalise_product(p, run_id, ts, source) for p in products]
         table = _build_table(norm, PRODUCTS_SCHEMA)
 
         report = validate(table, "products")
         quality_rps.append(report)
         for c in report["checks"]:
-            print(f"  {'✓' if c['passed'] else ('✗' if c['critical'] else '⚠')} {c['check']}")
+            tag = "+" if c["passed"] else ("!" if c["critical"] else "?")
+            print(f"  [{tag}] {c['check']}")
 
         if fail_on_quality and not report["passed"]:
             raise RuntimeError("Products failed critical quality checks.")
@@ -334,14 +400,15 @@ def ingest(
 
     # ── Reviews ────────────────────────────────────────────────────────────────
     if reviews:
-        print(f"\n[reviews] normalising {len(reviews):,} rows …")
+        print(f"\n[reviews] normalising {len(reviews):,} rows ...")
         norm = [_normalise_review(r, run_id, ts, source) for r in reviews]
         table = _build_table(norm, REVIEWS_SCHEMA)
 
         report = validate(table, "reviews")
         quality_rps.append(report)
         for c in report["checks"]:
-            print(f"  {'✓' if c['passed'] else ('✗' if c['critical'] else '⚠')} {c['check']}")
+            tag = "+" if c["passed"] else ("!" if c["critical"] else "?")
+            print(f"  [{tag}] {c['check']}")
 
         if fail_on_quality and not report["passed"]:
             raise RuntimeError("Reviews failed critical quality checks.")
@@ -352,5 +419,5 @@ def ingest(
     if quality_rps:
         written["quality_report"] = write_quality_report(quality_rps, bronze_dir, run_id)
 
-    print(f"\n{'─'*60}\n  run {run_id} complete.\n")
+    print(f"\n{'='*60}\n  run {run_id} complete.\n")
     return written

@@ -70,7 +70,7 @@ def fetch_interest_over_time(cfg: TrendsConfig) -> pd.DataFrame:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Descarga interés en el tiempo desde Google Trends (pytrends).")
+    parser = argparse.ArgumentParser(description="Descarga interes en el tiempo desde Google Trends (pytrends).")
     parser.add_argument(
         "--keywords",
         default="niacinamida,acido hialuronico,shampoo sin sulfatos",

@@ -3,11 +3,11 @@ pipeline.py
 ───────────
 Orchestrates the full DataOps pipeline end-to-end:
 
-  1. Scrape  →  SephoraScraper.run()          →  (products dict, reviews list)
-  2. Backup  →  (optional) raw CSVs to ./data/raw/backups/
-  3. Bronze  →  bronze_ingestion.ingest()      →  typed Parquet + quality report
-  4. Silver  →  silver_transform.transform()   →  NLP-enriched Parquet
-  5. Gold    →  gold_transform.build_gold()    →  4 analytics tables
+  1. Scrape  ->  SephoraScraper.run()          ->  (products dict, reviews list)
+  2. Backup  ->  (optional) raw CSVs to ./data/raw/backups/
+  3. Bronze  ->  bronze_ingestion.ingest()      ->  typed Parquet + quality report
+  4. Silver  ->  silver_transform.transform()   ->  NLP-enriched Parquet
+  5. Gold    ->  gold_transform.build_gold()    ->  4 analytics tables
 
 Usage
 ─────
@@ -27,6 +27,7 @@ Recovery (if scraper already ran and CSVs exist)
 
 import argparse
 import csv
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -34,7 +35,7 @@ from pathlib import Path
 
 from . import config as cfg
 from .scraper import SephoraScraper
-from .bronze_ingestion import ingest, load_products_csv, load_reviews_csv
+from .bronze_ingestion import ingest, load_products_csv, load_reviews_csv, _use_minio, _write_csv_to_minio
 from .silver_transform import transform as silver_transform
 from .gold_transform import build_gold
 
@@ -49,7 +50,7 @@ def _write_csv(rows: list[dict], path: str):
         writer = csv.DictWriter(f, fieldnames=rows[0].keys())
         writer.writeheader()
         writer.writerows(rows)
-    print(f"  [backup] {len(rows):,} rows → {path}")
+    print(f"  [backup] {len(rows):,} rows -> {path}")
 
 
 # ── Full pipeline ──────────────────────────────────────────────────────────────
@@ -64,35 +65,45 @@ def run_pipeline(
     run_id = uuid.uuid4().hex[:12]
     ts     = datetime.now(timezone.utc)
 
-    print(f"\n{'═'*60}")
+    print(f"\n{'='*60}")
     print(f"  Sephora Pipeline  |  run_id={run_id}")
     print(f"  Started {ts.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-    print(f"{'═'*60}\n")
+    print(f"{'='*60}\n")
 
     result = {"run_id": run_id}
 
     # Step 1: Scrape
-    print("── Step 1/5  SCRAPE ──────────────────────────────────────")
+    print("== Step 1/5  SCRAPE ==")
     products_dict, reviews_list = SephoraScraper().run()
     if not products_dict and not reviews_list:
-        print("[!] Scraper returned no data — pipeline aborted.")
+        print("[!] Scraper returned no data -- pipeline aborted.")
         return {}
     print(f"\n  Scraped: {len(products_dict):,} products | {len(reviews_list):,} reviews")
 
     # Step 2: Backup
-    print("\n── Step 2/5  BACKUP ──────────────────────────────────────")
+    print("\n== Step 2/5  BACKUP ==")
     if backup:
         date_str  = ts.strftime("%Y-%m-%d")
-        prod_path = f"{backup_dir}/{date_str}/sephora_products_{run_id}.csv"
-        rev_path  = f"{backup_dir}/{date_str}/sephora_reviews_{run_id}.csv"
-        _write_csv(list(products_dict.values()), prod_path)
-        _write_csv(reviews_list, rev_path)
-        result["backup"] = {"products": prod_path, "reviews": rev_path}
+        if _use_minio():
+            prod_key = f"backups/{date_str}/sephora_products_{run_id}.csv"
+            rev_key  = f"backups/{date_str}/sephora_reviews_{run_id}.csv"
+            _write_csv_to_minio(list(products_dict.values()), "marketpulse-raw", prod_key)
+            _write_csv_to_minio(reviews_list, "marketpulse-raw", rev_key)
+            result["backup"] = {
+                "products": f"s3://marketpulse-raw/{prod_key}",
+                "reviews":  f"s3://marketpulse-raw/{rev_key}",
+            }
+        else:
+            prod_path = f"{backup_dir}/{date_str}/sephora_products_{run_id}.csv"
+            rev_path  = f"{backup_dir}/{date_str}/sephora_reviews_{run_id}.csv"
+            _write_csv(list(products_dict.values()), prod_path)
+            _write_csv(reviews_list, rev_path)
+            result["backup"] = {"products": prod_path, "reviews": rev_path}
     else:
         print("  [skip] --no-backup flag set")
 
     # Step 3: Bronze
-    print("\n── Step 3/5  BRONZE ──────────────────────────────────────")
+    print("\n== Step 3/5  BRONZE ==")
     result["bronze"] = ingest(
         products=list(products_dict.values()), reviews=reviews_list,
         bronze_dir=bronze_dir, run_id=run_id,
@@ -100,16 +111,16 @@ def run_pipeline(
     )
 
     if not run_silver_gold:
-        print("\n  [skip] --skip-silver-gold flag — stopping after Bronze.")
+        print("\n  [skip] --skip-silver-gold flag -- stopping after Bronze.")
         _print_summary(run_id, result)
         return result
 
     # Step 4: Silver
-    print("\n── Step 4/5  SILVER ──────────────────────────────────────")
+    print("\n== Step 4/5  SILVER ==")
     result["silver"] = silver_transform(bronze_dir=bronze_dir, silver_dir=silver_dir)
 
     # Step 5: Gold
-    print("\n── Step 5/5  GOLD ────────────────────────────────────────")
+    print("\n== Step 5/5  GOLD ==")
     result["gold"] = build_gold(silver_dir=silver_dir, gold_dir=gold_dir)
 
     _print_summary(run_id, result)
@@ -129,9 +140,9 @@ def run_from_csv(
     run_id = uuid.uuid4().hex[:12]
     ts     = datetime.now(timezone.utc)
 
-    print(f"\n{'═'*60}")
+    print(f"\n{'='*60}")
     print(f"  Recovery Ingest  |  run_id={run_id}")
-    print(f"{'═'*60}\n")
+    print(f"{'='*60}\n")
 
     products = load_products_csv(products_csv, run_id, ts) if products_csv else []
     reviews  = load_reviews_csv(reviews_csv,   run_id, ts) if reviews_csv  else []
@@ -172,7 +183,7 @@ def run_gold_only(
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 def _print_summary(run_id, result):
-    print(f"\n{'═'*60}")
+    print(f"\n{'='*60}")
     print(f"  Pipeline complete  |  run_id={run_id}")
     print(f"\n  Outputs:")
     for layer, paths in result.items():
@@ -187,14 +198,14 @@ def _print_summary(run_id, result):
                 print(f"    [{layer}]  {p}")
         elif isinstance(paths, str):
             print(f"    [{layer}]  {paths}")
-    print(f"{'═'*60}\n")
+    print(f"{'='*60}\n")
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Sephora end-to-end: scrape → bronze → silver → gold."
+        description="Sephora end-to-end: scrape -> bronze -> silver -> gold."
     )
     parser.add_argument("--from-csv",         action="store_true")
     parser.add_argument("--silver-only",      action="store_true")
