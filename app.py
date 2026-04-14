@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 from nltk.sentiment import SentimentIntensityAnalyzer
+from src.processing.health_score import compute_health_score
 
 st.set_page_config(page_title="MarketPulse Beauty", layout="wide")
 
