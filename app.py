@@ -282,6 +282,38 @@ if view == "Producto":
     c3.metric("Health Score", f"{latest_health:.1f}", f"{delta:+.1f}" if delta is not None else None)
     c4.metric("# reseñas", f"{len(prod_df)}")
 
+    st.divider()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Evolución temporal")
+        if not prod_week.empty:
+            st.line_chart(prod_week.set_index("week")[["rating_avg", "health_score"]], height=280)
+        else:
+            st.info("No hay semanas suficientes para graficar.")
+
+    with col2:
+        st.subheader("Distribución de sentimiento")
+        sent_counts = prod_df["sentiment_label"].value_counts()
+        st.bar_chart(sent_counts, height=280)
+
+    st.divider()
+
+    st.subheader("Explicación contextual")
+    context_lines = []
+    if "polarization_score" in prod_df.columns and prod_df["polarization_score"].notna().any():
+        pol = float(prod_df["polarization_score"].dropna().iloc[0])
+        context_lines.append(f"- Polarización del producto: {pol:.3f}")
+    context_lines.append(f"- Rating promedio de reseñas en el rango actual: {prod_df['Rating'].mean():.2f}")
+    context_lines.append(f"- Health Score actual: {latest_health:.1f}")
+    context_lines.append(f"- Total de reseñas en el rango: {len(prod_df)}")
+    context_lines.append(f"- Sentimiento dominante: {prod_df['sentiment_label'].mode().iloc[0] if not prod_df.empty else 'N/A'}")
+    st.markdown("\n".join(context_lines))
+
+    st.divider()
+
+    st.subheader("Trends")
     tone, context_lines = build_context(selected_name, prod_df, prod_week, latest_health, delta)
     if tone == "success":
         st.success(context_lines[0])
@@ -338,6 +370,7 @@ if view == "Producto":
 
     st.divider()
 
+    st.subheader("Alertas")
     st.subheader("Riesgos y alertas")
 
     if alerts.empty:
