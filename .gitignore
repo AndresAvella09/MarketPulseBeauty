@@ -1,69 +1,77 @@
-	# ─────────────────
-# Datos y CSV (MarketPulse Specific)
-# ─────────────────
+# ─────────────────────────────
+# DATA (CRÍTICO)
+# ─────────────────────────────
+# Ignorar TODO el directorio data
+data/**
 
+# PERMITIR solo metadata de DVC y estructura
+!data/**/*.dvc
+!data/**/.gitignore
 !data/**/.gitkeep
-logs/*.log
 
-# ─────────────────
-# Entorno virtual
-# ─────────────────
+# (Opcional) permitir xml si lo necesitas versionar
+!data/raw/xml/*.xml
+
+# ─────────────────────────────
+# PARQUET, CSV, JSON pesados
+# ─────────────────────────────
+*.parquet
+*.csv
+*.json
+
+# ⚠️ EXCEPCIÓN: metadata útil
+!data/**/*.dvc
+
+# ─────────────────────────────
+# ENTORNOS
+# ─────────────────────────────
 venv/
 .venv/
 env/
 ENV/
 
-# ─────────────────
-# Variables privadas
-# ─────────────────
+# ─────────────────────────────
+# VARIABLES SENSIBLES
+# ─────────────────────────────
 .env
 .env.*
 *.env
 
-# ─────────────────
-# Python & Cache
-# ─────────────────
+# También tu scraper tiene uno aquí:
+src/**/.env
+
+# ─────────────────────────────
+# PYTHON CACHE
+# ─────────────────────────────
 **/__pycache__/
 *.py[cod]
-*$py.class
 *.pyd
 *.pytest_cache/
 .ipynb_checkpoints/
 
-# ─────────────────
-# Archivos sensibles & Scraping
-# ─────────────────
+# ─────────────────────────────
+# LOGS
+# ─────────────────────────────
+logs/
+*.log
+
+# ─────────────────────────────
+# ARCHIVOS SENSIBLES
+# ─────────────────────────────
 sephora_cookies.json
 src/**/sephora_cookies.json
-*.log
-*.tmp
 
-# ─────────────────
-# OS & IDE
-# ─────────────────
+# ─────────────────────────────
+# OS / IDE
+# ─────────────────────────────
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
 
-# ─────────────────
-# Python packaging
-# ─────────────────
+# ─────────────────────────────
+# BUILD
+# ─────────────────────────────
 build/
 dist/
 *.egg-info/
-
-# Local parquet data (do not commit)
-*.parquet
-data/local/
-data/bronze/
-data/silver/
-data/gold/
-# BEGIN LOCAL_PARQUET_DATA
-# Local parquet data (do not commit)
-*.parquet
-data/local/
-data/bronze/
-data/silver/
-data/gold/
-# END LOCAL_PARQUET_DATA

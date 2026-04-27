@@ -61,7 +61,7 @@ Cuando trabajas en el proyecto, es común que agregues nuevos archivos de datos 
    Envía los datos físicos a la nube para que estén disponibles para tu equipo:
 
    ```bash
-   dvc push
+   dvc push -r gdrive `data/ruta_relativa/...`
    ```
 
 3. **Guardar el registro en Git**:

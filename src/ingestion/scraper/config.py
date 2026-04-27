@@ -19,9 +19,6 @@ PAGE_SIZE              = 100   # max allowed by BV API
 MAX_REVIEWS_PER_PRODUCT = 5000 # safety cap per product (set to a huge number to get all)
  
 # ── Performance ────────────────────────────────────────────────────────────────
-MAX_WORKERS  = 8      # parallel threads — be polite, keep ≤ 10
-DELAY_SECS   = 0.3    # sleep between paginated calls for the same product
+MAX_WORKERS  = 3      # parallel threads — be polite, keep ≤ 10
+DELAY_SECS   = 1    # sleep between paginated calls for the same product
  
-# ── Output ─────────────────────────────────────────────────────────────────────
-OUTPUT_REVIEWS = "data/raw/csv/sephora_reviews.csv"
-OUTPUT_PRODUCTS = "data/raw/csv/sephora_products.csv"
