@@ -1,0 +1,66 @@
+{
+  "run_id": "e042ca008e83",
+  "generated_at": "2026-03-20T03:58:18.564001+00:00",
+  "reports": [
+    {
+      "table": "products",
+      "total_rows": 378,
+      "checks": [
+        {
+          "check": "has_rows",
+          "passed": true,
+          "critical": true
+        },
+        {
+          "check": "ProductID_no_nulls",
+          "passed": true,
+          "critical": true
+        },
+        {
+          "check": "ProductID_unique",
+          "passed": true,
+          "critical": false
+        },
+        {
+          "check": "ProductName_fill\u226595%",
+          "passed": true,
+          "critical": false
+        }
+      ],
+      "passed": true
+    },
+    {
+      "table": "reviews",
+      "total_rows": 208915,
+      "checks": [
+        {
+          "check": "has_rows",
+          "passed": true,
+          "critical": true
+        },
+        {
+          "check": "ReviewID_no_nulls",
+          "passed": true,
+          "critical": true
+        },
+        {
+          "check": "ReviewID_unique",
+          "passed": false,
+          "critical": false
+        },
+        {
+          "check": "Rating_in_1_to_5",
+          "passed": true,
+          "critical": false
+        },
+        {
+          "check": "ReviewText_fill\u226580%",
+          "passed": true,
+          "critical": false
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "overall_pass": true
+}
