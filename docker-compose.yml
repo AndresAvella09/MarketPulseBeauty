@@ -1,0 +1,209 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: docker/Dockerfile.airflow
+  environment:
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@postgres:5432/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+    AIRFLOW__WEBSERVER__SECRET_KEY: "marketpulse-airflow-secret"
+    USE_MINIO: "true"
+    MINIO_ENDPOINT: http://minio:9000
+    MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+    MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+    POSTGRES_GOLD_CONN: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@postgres:5432/marketpulse
+    BAZAARVOICE_PASSKEY: ${BAZAARVOICE_PASSKEY}
+    HF_TOKEN: ${HF_TOKEN}
+    NVIDIA_VISIBLE_DEVICES: all
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./airflow/logs:/opt/airflow/logs
+    - ./src:/opt/airflow/src
+    - ./data/raw/xml:/opt/airflow/data/raw/xml
+    - ./config:/opt/airflow/config
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+  networks:
+    - marketpulse-net
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: airflow
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/init-postgres.sql:/docker-entrypoint-initdb.d/init-postgres.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketpulse-net
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketpulse-net
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketpulse-net
+
+  minio-init:
+    image: minio/mc:latest
+    entrypoint: /bin/sh /init-minio.sh
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - ./docker/init-minio.sh:/init-minio.sh:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - marketpulse-net
+
+  # ── Airflow ─────────────────────────────────────────────────────────────────
+
+  airflow-webserver:
+    <<: *airflow-common
+    command:
+      - bash
+      - -c
+      - |
+        airflow db migrate &&
+        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true &&
+        airflow webserver
+    ports:
+      - "8080:8080"
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command:
+      - bash
+      - -c
+      - |
+        until airflow db check 2>/dev/null; do echo "Waiting for DB..."; sleep 3; done &&
+        airflow scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-webserver:
+        condition: service_started
+
+  airflow-worker:
+    <<: *airflow-common
+    command:
+      - bash
+      - -c
+      - |
+        until airflow db check 2>/dev/null; do echo "Waiting for DB..."; sleep 3; done &&
+        airflow celery worker
+    shm_size: "2g"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-webserver:
+        condition: service_started
+    # ── CUDA GPU access for the worker (where pipeline tasks run) ────────────
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ── Applications ────────────────────────────────────────────────────────────
+
+  jupyterlab:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.jupyter
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      POSTGRES_GOLD_CONN: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@postgres:5432/marketpulse
+      NVIDIA_VISIBLE_DEVICES: all
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/notebooks
+      - ./src:/home/jovyan/src
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - marketpulse-net
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.streamlit
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      PG_CONN: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@postgres:5432/marketpulse
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    networks:
+      - marketpulse-net
+
+volumes:
+  postgres-data:
+  minio-data:
+
+networks:
+  marketpulse-net:
+    driver: bridge
