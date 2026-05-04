@@ -2,13 +2,10 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 from nltk.sentiment import SentimentIntensityAnalyzer
-from src.processing.health_score import compute_health_score
 
 st.set_page_config(page_title="MarketPulse Beauty", layout="wide")
 
-P_PRODUCTS = Path("data/local/gold/products.parquet")
-P_REVIEWS = Path("data/local/gold/reviews.parquet")
-P_TRENDS = Path("data/local/gold/trends.parquet")
+from src.visualization.config import PRODUCTS_PATH, REVIEWS_PATH, TRENDS_PATH
 
 @st.cache_data(show_spinner=False)
 def read_parquet_safe(path: str) -> pd.DataFrame:
@@ -182,9 +179,9 @@ st.title("MarketPulse Beauty Dashboard")
 
 with st.sidebar:
     st.header("Datos locales")
-    products_path = st.text_input("products.parquet", str(P_PRODUCTS))
-    reviews_path = st.text_input("reviews.parquet", str(P_REVIEWS))
-    trends_path = st.text_input("trends.parquet", str(P_TRENDS))
+    products_path = st.text_input("products.parquet", str(PRODUCTS_PATH))
+    reviews_path = st.text_input("reviews.parquet", str(REVIEWS_PATH))
+    trends_path = st.text_input("trends.parquet", str(TRENDS_PATH))
 
 products = read_parquet_safe(products_path)
 reviews = read_parquet_safe(reviews_path)
