@@ -1,0 +1,74 @@
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    AIRFLOW_HOME=/opt/airflow \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+# ── System deps (Python 3.11 + libs for Playwright & psycopg2) ──────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common curl wget git && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-venv python3.11-dev \
+        libpq-dev gcc g++ \
+        libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+        libcups2 libxcomposite1 libxrandr2 libxdamage1 libgbm1 \
+        libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make python3.11 the default and install pip
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python  python  /usr/bin/python3.11 1 && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
+
+# Remove system-managed packages that conflict with pip installs
+RUN rm -rf /usr/lib/python3/dist-packages/blinker* \
+           /usr/lib/python3/dist-packages/PyGObject* \
+           /usr/lib/python3/dist-packages/pygobject* \
+           /usr/lib/python3/dist-packages/dbus* \
+    2>/dev/null || true
+
+# ── Airflow user ─────────────────────────────────────────────────────────────
+RUN useradd -ms /bin/bash -d ${AIRFLOW_HOME} airflow
+WORKDIR ${AIRFLOW_HOME}
+
+# ── Apache Airflow ───────────────────────────────────────────────────────────
+RUN pip install "apache-airflow==2.9.1" \
+    --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.9.1/constraints-3.11.txt"
+
+# ── Project Python dependencies ──────────────────────────────────────────────
+COPY requirements.txt /tmp/requirements.txt
+
+# Airflow providers (use Airflow constraints to keep compatible)
+RUN pip install \
+    apache-airflow-providers-amazon \
+    apache-airflow-providers-celery \
+    boto3 s3fs psycopg2-binary \
+    --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.9.1/constraints-3.11.txt"
+
+# Project deps (no constraints — let pip resolve freely)
+RUN pip install -r /tmp/requirements.txt \
+    sentence-transformers \
+    cupy-cuda12x
+
+# ── PyTorch with CUDA 12.4 (>= 2.6 required by transformers CVE-2025-32434) ─
+RUN pip install "torch>=2.6" "torchvision>=0.21" --index-url https://download.pytorch.org/whl/cu124
+
+# ── spaCy models ─────────────────────────────────────────────────────────────
+#   sm  → Silver NLP (tokenization, lemmatization) — fast
+#   md  → Gold embedding fallback (300-dim word vectors)
+#   trf → Best-quality transformer model (GPU-accelerated, ~500 MB)
+RUN python -m spacy download en_core_web_sm && \
+    python -m spacy download en_core_web_md && \
+    python -m spacy download en_core_web_trf
+
+# ── Playwright (Chromium for scraping) ───────────────────────────────────────
+RUN pip install playwright playwright-stealth && \
+    playwright install --with-deps chromium
+
+# ── Copy project source so DAGs can import pipeline modules ──────────────────
+COPY src/ ${AIRFLOW_HOME}/src/
+
+RUN chown -R airflow:airflow ${AIRFLOW_HOME}
+USER airflow

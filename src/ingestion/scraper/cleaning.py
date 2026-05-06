@@ -8,20 +8,20 @@ Pipeline per text field (in order)
   1. Lowercase
   2. Punctuation removal
   3. Stop-word removal       (spaCy's built-in English stop-word list)
-  4. Tokenization            (spaCy tokenizer — handles contractions, etc.)
-  5. Lemmatization           (spaCy lemmatizer — "running" → "run")
+  4. Tokenization            (spaCy tokenizer -- handles contractions, etc.)
+  5. Lemmatization           (spaCy lemmatizer -- "running" -> "run")
 
 Outputs per field
 ─────────────────
-  <field>_clean   : str   – lowercased, no punct, no stopwords, space-joined
-  <field>_tokens  : str   – pipe-joined raw tokens (before stopword removal)
-  <field>_lemmas  : str   – pipe-joined lemmas     (after stopword removal)
+  <field>_clean   : str   - lowercased, no punct, no stopwords, space-joined
+  <field>_tokens  : str   - pipe-joined raw tokens (before stopword removal)
+  <field>_lemmas  : str   - pipe-joined lemmas     (after stopword removal)
 
 Public API
 ──────────
-  load_nlp()                → spacy.Language
-  clean_field(nlp, text)    → CleanResult (named tuple)
-  clean_batch(nlp, texts)   → list[CleanResult]   (uses nlp.pipe — fast)
+  load_nlp()                -> spacy.Language
+  clean_field(nlp, text)    -> CleanResult (named tuple)
+  clean_batch(nlp, texts)   -> list[CleanResult]   (uses nlp.pipe -- fast)
 """
 
 import re
@@ -36,7 +36,7 @@ def load_nlp():
     """
     Load (and cache) the spaCy English model.
 
-    Only the tokenizer, tagger, and lemmatizer are enabled — the parser
+    Only the tokenizer, tagger, and lemmatizer are enabled -- the parser
     and NER are disabled for speed since we don't need them here.
 
     First run:  python -m spacy download en_core_web_sm
@@ -47,7 +47,7 @@ def load_nlp():
             import spacy
             _NLP_SINGLETON = spacy.load(
                 "en_core_web_sm",
-                disable=["parser", "ner"],   # ~2× faster; lemmatizer still works
+                disable=["parser", "ner"],
             )
             print("[NLP] spaCy model 'en_core_web_sm' loaded.")
         except OSError:
@@ -62,7 +62,7 @@ def load_nlp():
 # ── Result container ───────────────────────────────────────────────────────────
 
 class CleanResult(NamedTuple):
-    clean:     str | None   # lowercased, no punct, no stopwords — space-joined
+    clean:     str | None   # lowercased, no punct, no stopwords - space-joined
     tokens:    str | None   # pipe-joined raw tokens (before stopword filter)
     lemmas:    str | None   # pipe-joined lemmas (stopwords removed)
     wordcount: int          # token count after full cleaning (for reviews)
@@ -74,7 +74,7 @@ _PUNCT_RE   = re.compile(r"[^\w\s]")   # anything that's not word-char or space
 _SPACE_RE   = re.compile(r"\s+")
 
 def _preprocess(text: str) -> str:
-    """Lowercase → strip punctuation → collapse whitespace."""
+    """Lowercase -> strip punctuation -> collapse whitespace."""
     text = text.lower()
     text = _PUNCT_RE.sub(" ", text)
     text = _SPACE_RE.sub(" ", text).strip()
@@ -144,7 +144,7 @@ def clean_batch(
 
     Returns
     -------
-    list[CleanResult] — same length and order as input
+    list[CleanResult] -- same length and order as input
     """
     results: list[CleanResult] = []
 
@@ -199,15 +199,8 @@ def clean_column(nlp, column: list[str | None], **batch_kwargs) -> dict[str, lis
         "<suffix>_clean":     [...],
         "<suffix>_tokens":    [...],
         "<suffix>_lemmas":    [...],
-        "<suffix>_wordcount": [...],   # only populated for reviews
+        "<suffix>_wordcount": [...],
       }
-
-    Usage
-    -----
-        extras = clean_column(nlp, df["ReviewText"].tolist())
-        df["ReviewText_clean"]  = extras["clean"]
-        df["ReviewText_tokens"] = extras["tokens"]
-        df["ReviewText_lemmas"] = extras["lemmas"]
     """
     results = clean_batch(nlp, column, **batch_kwargs)
     return {
