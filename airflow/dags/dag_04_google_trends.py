@@ -157,6 +157,58 @@ def write_bronze(**context):
     print(f"[write_bronze] run_id={run_id} | {len(df)} rows → s3://marketpulse-bronze/{key}")
 
 
+def build_trends_gold(**context):
+    """Aggregate Bronze trends → gold.search_trends + gold.search_spikes."""
+    import uuid as _uuid
+    from datetime import date as _date
+
+    run_id = context["ti"].xcom_pull(key="run_id")
+    data = context["ti"].xcom_pull(key="trends_data", task_ids="fetch_trends")
+    df = pd.DataFrame(data) if data else pd.DataFrame()
+    if df.empty:
+        print(f"[build_trends_gold] run_id={run_id} | no data")
+        return
+
+    # Normalize incoming columns: pytrends long format gives date/keyword/value/geo.
+    rename = {}
+    if "value" in df.columns and "interest" not in df.columns:
+        rename["value"] = "interest"
+    if "interest_value" in df.columns and "interest" not in df.columns:
+        rename["interest_value"] = "interest"
+    df = df.rename(columns=rename)
+    if "geo" not in df.columns:
+        df["geo"] = "CO"
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df = df.dropna(subset=["date", "keyword"])
+
+    revision_dt = _date.today()
+    gold_run_id = _uuid.uuid4().hex[:12]
+
+    trends_df = df[["keyword", "geo", "date", "interest"]].copy()
+    trends_df["interest"] = pd.to_numeric(trends_df["interest"], errors="coerce")
+    trends_df["revision_date"] = revision_dt
+    trends_df["_gold_run_id"] = gold_run_id
+
+    from src.processing.gold_insights import detect_search_spikes
+    spikes = detect_search_spikes(trends_df.rename(columns={"interest": "interest"}))
+    if not spikes.empty:
+        spikes["revision_date"] = revision_dt
+        spikes["_gold_run_id"] = gold_run_id
+
+    conn_str = os.getenv("POSTGRES_GOLD_CONN")
+    if not conn_str:
+        print("[build_trends_gold] POSTGRES_GOLD_CONN not set — skipping upsert")
+        return
+
+    from sqlalchemy import create_engine
+    from src.processing.gold_writer import upsert_search_spikes, upsert_search_trends
+    engine = create_engine(conn_str)
+    with engine.begin() as conn:
+        n_t = upsert_search_trends(trends_df, conn)
+        n_s = upsert_search_spikes(spikes, conn) if not spikes.empty else 0
+        print(f"[build_trends_gold] run_id={run_id} | trends={n_t} spikes={n_s}")
+
+
 def split_by_keyword(**context):
     """Write one Parquet file per keyword to MinIO."""
     import pyarrow as pa
@@ -216,5 +268,6 @@ with DAG(
     t_validate = PythonOperator(task_id="validate_response", python_callable=validate_response)
     t_write = PythonOperator(task_id="write_bronze", python_callable=write_bronze)
     t_split = PythonOperator(task_id="split_by_keyword", python_callable=split_by_keyword)
+    t_gold = PythonOperator(task_id="build_trends_gold", python_callable=build_trends_gold)
 
-    t_load >> t_fetch >> t_validate >> t_write >> t_split
+    t_load >> t_fetch >> t_validate >> t_write >> t_split >> t_gold

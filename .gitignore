@@ -11,6 +11,7 @@ data/**
 
 # (Opcional) permitir xml si lo necesitas versionar
 !data/raw/xml/*.xml
+data/raw/xml/products-sitemap.xml
 
 # ─────────────────────────────
 # PARQUET, CSV, JSON pesados
@@ -103,3 +104,67 @@ notebooks/.ipynb_checkpoints/
 *.jpeg
 image.png
 architecture_diagram.html
+
+# ─────────────────────────────
+# DASHBOARD DESIGN DRAFTS (local only)
+# ─────────────────────────────
+dashboard_design_prompt.md
+dashboard_business_questions.md
+
+# ─────────────────────────────
+# POSTGRES SNAPSHOTS / TEAM DATA HANDOFF
+# ─────────────────────────────
+*.dump
+*.backup
+*.sql.gz
+*.sql.bz2
+*.tar.gz
+*.tgz
+*.zip
+dumps/
+backups/
+snapshots/
+data_snapshots/
+
+# ─────────────────────────────
+# FRONTEND (per-developer, avoid merge conflicts)
+# Each teammate maintains their own dashboard code locally.
+# Only app.py at the repo root is shared.
+# ─────────────────────────────
+src/dashboard/
+
+# ─────────────────────────────
+# FRONTEND / UI ASSETS (local only)
+# ─────────────────────────────
+assets/
+preview/
+ui_kits/
+
+# HTML files (design previews, prototypes)
+*.html
+
+# Web / design source files
+*.css
+*.scss
+*.sass
+*.less
+*.svg
+*.ico
+*.webp
+*.gif
+*.bmp
+*.tiff
+*.avif
+
+# JS/TS build artifacts and source
+*.js
+*.ts
+*.jsx
+*.tsx
+node_modules/
+.next/
+.nuxt/
+.svelte-kit/
+out/
+public/
+static/

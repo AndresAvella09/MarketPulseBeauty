@@ -109,11 +109,13 @@ services:
       - bash
       - -c
       - |
+        rm -f /opt/airflow/airflow-webserver.pid &&
         airflow db migrate &&
         airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true &&
         airflow webserver
     ports:
       - "8080:8080"
+    restart: unless-stopped
 
   airflow-scheduler:
     <<: *airflow-common
@@ -140,6 +142,7 @@ services:
         until airflow db check 2>/dev/null; do echo "Waiting for DB..."; sleep 3; done &&
         airflow celery worker
     shm_size: "2g"
+    mem_limit: 12g
     depends_on:
       postgres:
         condition: service_healthy

@@ -431,6 +431,89 @@ def _write_silver_reviews(table: pa.Table, silver_dir: str) -> list[str]:
 _SILVER_RUN_ID: str = ""   # set at the start of transform()
 
 
+# ── Stage entry points (called individually by Airflow tasks) ─────────────────
+
+def stage_contracts(
+    silver_run_id: str,
+    bronze_dir: str = "./data/raw/bronze",
+    silver_dir: str = "./data/processed/silver",
+    bronze_date: str | None = None,
+    fail_on_contract_violation: bool = True,
+) -> None:
+    """Stage 1: read bronze reviews and run the data-contract gate."""
+    global _SILVER_RUN_ID
+    _SILVER_RUN_ID = silver_run_id
+
+    print(f"\n[silver/contracts] silver_run_id={silver_run_id}")
+    pre_reviews = _read_bronze(bronze_dir, "reviews", bronze_date)
+    if not _CONTRACTS_AVAILABLE:
+        print("[contract] data_contracts module not available — gate skipped.")
+        return
+    if pre_reviews is None:
+        print("[contract] No review data found — gate skipped.")
+        return
+
+    if _use_minio():
+        import tempfile
+        report_path = str(Path(tempfile.gettempdir()) / f"quality_report_{silver_run_id}.json")
+    else:
+        report_path = str(Path(silver_dir).parent / "quality_report.json")
+
+    try:
+        enforce_contracts(reviews=pre_reviews, report_path=report_path, run_id=silver_run_id)
+        print("[contract] All critical contracts passed.")
+    except ContractViolationError:
+        if fail_on_contract_violation:
+            raise
+        print("[contract] Violations detected (fail_on_contract_violation=False), continuing.")
+
+
+def stage_silver_products(
+    silver_run_id: str,
+    bronze_dir: str = "./data/raw/bronze",
+    silver_dir: str = "./data/processed/silver",
+    bronze_date: str | None = None,
+) -> str | None:
+    """Stage 2: bronze products → enriched silver products parquet."""
+    global _SILVER_RUN_ID, _GPU_AVAILABLE
+    _SILVER_RUN_ID = silver_run_id
+    _GPU_AVAILABLE = _setup_gpu()
+
+    print(f"\n[silver/products] silver_run_id={silver_run_id}")
+    nlp = load_nlp()
+    prod_table = _read_bronze(bronze_dir, "products", bronze_date)
+    if prod_table is None or len(prod_table) == 0:
+        print("  [skip] no product rows found in bronze")
+        return None
+
+    enriched = _enrich_products(nlp, prod_table)
+    return _write_silver_products(enriched, silver_dir)
+
+
+def stage_silver_reviews(
+    silver_run_id: str,
+    bronze_dir: str = "./data/raw/bronze",
+    silver_dir: str = "./data/processed/silver",
+    bronze_date: str | None = None,
+) -> list[str]:
+    """Stage 3: bronze reviews → dedup → enriched silver reviews parquet."""
+    global _SILVER_RUN_ID, _GPU_AVAILABLE
+    _SILVER_RUN_ID = silver_run_id
+    _GPU_AVAILABLE = _setup_gpu()
+
+    print(f"\n[silver/reviews] silver_run_id={silver_run_id}")
+    nlp = load_nlp()
+    rev_table = _read_bronze(bronze_dir, "reviews", bronze_date)
+    if rev_table is None or len(rev_table) == 0:
+        print("  [skip] no review rows found in bronze")
+        return []
+
+    print(f"  [dedup] Deduplicating {len(rev_table):,} Bronze reviews by ReviewID ...")
+    rev_table = _dedup_reviews(rev_table)
+    enriched = _enrich_reviews(nlp, rev_table)
+    return _write_silver_reviews(enriched, silver_dir)
+
+
 def transform(
     bronze_dir:  str = "./data/raw/bronze",
     silver_dir:  str = "./data/processed/silver",

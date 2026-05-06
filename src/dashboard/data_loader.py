@@ -11,12 +11,6 @@ from src.dashboard.utils import classify_focus_keyword
 PRODUCTS_PATH = Path("data/processed/gold/products")
 REVIEWS_PATH  = Path("data/processed/gold/reviews")
 
-_EMBEDDING_COLS = {
-    "product_name_embedding",
-    "review_text_embedding",
-    "title_embedding",
-}
-
 
 def validate_dir(path: Path, label: str) -> None:
     if not path.exists() or not path.is_dir():
@@ -26,10 +20,7 @@ def validate_dir(path: Path, label: str) -> None:
 
 
 def _read_gold_dir(path: Path) -> pd.DataFrame:
-    """Read a partitioned Gold parquet directory, dropping embedding columns."""
-    dataset = ds.dataset(str(path), format="parquet")
-    cols = [f.name for f in dataset.schema if f.name not in _EMBEDDING_COLS]
-    return dataset.to_table(columns=cols).to_pandas()
+    return ds.dataset(str(path), format="parquet").to_table().to_pandas()
 
 
 def load_gold_data(
@@ -61,7 +52,9 @@ def prepare_data(products: pd.DataFrame, reviews: pd.DataFrame) -> tuple[pd.Data
     if "ProductID" not in reviews.columns:
         raise ValueError("reviews parquet debe contener la columna 'ProductID'.")
 
-    products["focus_keyword"] = products["ProductName"].apply(classify_focus_keyword)
+    if "focus_keyword" not in products.columns:
+        # Backwards-compat: older gold parquets may not carry the column yet.
+        products["focus_keyword"] = products["ProductName"].apply(classify_focus_keyword)
 
     focus_products = products[products["focus_keyword"].notna()].copy()
 
@@ -81,11 +74,5 @@ def prepare_data(products: pd.DataFrame, reviews: pd.DataFrame) -> tuple[pd.Data
 
     if "Rating" in reviews.columns:
         reviews["Rating"] = pd.to_numeric(reviews["Rating"], errors="coerce")
-
-    if "HelpfulCount" in reviews.columns:
-        reviews["HelpfulCount"] = pd.to_numeric(reviews["HelpfulCount"], errors="coerce").fillna(0)
-
-    if "NotHelpfulCount" in reviews.columns:
-        reviews["NotHelpfulCount"] = pd.to_numeric(reviews["NotHelpfulCount"], errors="coerce").fillna(0)
 
     return focus_products, reviews

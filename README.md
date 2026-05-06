@@ -1,4 +1,5 @@
 # Marketpulse Beauty
+
 ![CI](https://github.com/AndresAvella09/MarketPulseBeauty/actions/workflows/ci.yml/badge.svg?branch=main)
 
 Retail Intelligence Dashboard para productos de belleza y cuidado personal
@@ -31,25 +32,26 @@ MarketPulse Beauty busca automatizar este análisis usando datos públicos y té
 ## Subproductos Planeados y alcance
 
 1. **Health Score del Producto**
-    - Calculado a partir del rating promedio.
-    - Ajustado por volumen de búsquedas.
-    - Evolución temporal.
 
+   - Calculado a partir del rating promedio.
+   - Ajustado por volumen de búsquedas.
+   - Evolución temporal.
 2. **Review Insights**
-    - Identificación de temas recurrentes.
-    - Principales quejas o problemas de productos seleccionados.
-    - Análisis de sentimiento.
 
+   - Identificación de temas recurrentes.
+   - Principales quejas o problemas de productos seleccionados.
+   - Análisis de sentimiento.
 3. **Trend Analysis**
-    - Interés de búsqueda en el tiempo.
-    - Comparación entre marcas o productos.
-    - Detección de picos de búsqueda.
+
+   - Interés de búsqueda en el tiempo.
+   - Comparación entre marcas o productos.
+   - Detección de picos de búsqueda.
 
 ---
 
 ## Arquitectura planeada
 
-Datos Públicos | APIs  
+Datos Públicos | APIs
   ├── Reseñas de productos
   └── Google Trends
         ↓
@@ -61,20 +63,19 @@ Procesamiento y Modelado
         ↓
 Dashboard + Alertas
 
-
 ---
 
 ## Stack Tecnológico
 
 - Python
-    - pandas
-    - numpy
-    - scikit-learn
-    - nlth | spaCy
-    - Streamlit
+  - pandas
+  - numpy
+  - scikit-learn
+  - nlth | spaCy
+  - Streamlit
 - GitHub
-    - GitHub Projects
-    - Github Actions
+  - GitHub Projects
+  - Github Actions
 - Metodología SCRUM
 
 ---
@@ -111,6 +112,7 @@ Cada Sprint tendrá su propia carpeta de documentación dentro del repositorio, 
 - Documento de transición al siguiente Scrum Master.
 
 ### Transición entre Scrum Masters
+
 Al finalizar su periodo, el Scrum Master saliente realizará una reunión formal de traspaso con el siguiente Scrum Master, en la cual se documentará:
 
 - Estado actual del proyecto.
