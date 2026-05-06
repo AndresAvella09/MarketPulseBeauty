@@ -21,4 +21,6 @@ playwright-stealth
 beautifulsoup4
 requests
 pyarrow
-dvc[gdrive]
+dill>=0.3.4
+python-dotenv
+bertopic==0.16.4
