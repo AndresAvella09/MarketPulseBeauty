@@ -1,131 +1,102 @@
+"""MarketPulse Beauty — Streamlit dashboard entry point.
+
+Reads from the `gold.*` schema in Postgres (via PG_CONN). Run inside docker:
+    docker compose up streamlit
+
+Or locally with port 5433 exposed by the postgres service:
+    streamlit run app.py
+"""
+from __future__ import annotations
+
 import streamlit as st
-import pandas as pd
-from pathlib import Path
-from src.processing.health_score import compute_health_score
 
-st.set_page_config(page_title="MarketPulse Beauty", layout="wide")
-
-DEFAULT_PRODUCTS = Path("data/local/silver/products.parquet")
-DEFAULT_REVIEWS = Path("data/local/silver/reviews.parquet")
-
-@st.cache_data(show_spinner=False)
-def load_parquet(path: Path) -> pd.DataFrame:
-    return pd.read_parquet(path)
-
-def to_datetime_safe(s: pd.Series) -> pd.Series:
-    dt = pd.to_datetime(s, errors="coerce", utc=True)
-    try:
-        return dt.dt.tz_convert(None)
-    except Exception:
-        return dt
-
-
-st.title("MarketPulse Beauty — Streamlit Prototype (Issue #29)")
-
-with st.sidebar:
-    st.header("Datos (local)")
-    st.caption("Lee silver local en data/local/silver/*.parquet (no se sube al repo).")
-    products_path = Path(st.text_input("products.parquet", str(DEFAULT_PRODUCTS)))
-    reviews_path = Path(st.text_input("reviews.parquet", str(DEFAULT_REVIEWS)))
-
-if not products_path.exists() or not reviews_path.exists():
-    st.error("No encuentro los parquet. Verifica rutas en el panel izquierdo.")
-    st.stop()
-
-try:
-    products = load_parquet(products_path)
-    reviews = load_parquet(reviews_path)
-except Exception as e:
-    st.error("No pude leer parquet. Asegúrate de tener `pyarrow` instalado.")
-    st.exception(e)
-    st.stop()
-
-# Join FIXO con tus columnas reales
-if "ProductID" not in products.columns or "ProductID" not in reviews.columns:
-    st.error("No existe ProductID en products o reviews. No puedo unir.")
-    st.stop()
-
-# Normalizar columnas clave para dashboard
-products = products.copy()
-reviews = reviews.copy()
-
-# Asegurar datetime
-if "SubmissionTime" in reviews.columns:
-    reviews["SubmissionTime"] = to_datetime_safe(reviews["SubmissionTime"])
-
-# Merge: reviews + products
-df = reviews.merge(
-    products[["ProductID", "ProductName", "Brand", "AvgRating", "TotalReviewCount", "CategoryId", "ProductPageUrl"]],
-    on="ProductID",
-    how="left"
+from src.dashboard import theme as th
+from src.dashboard.components import render_sidebar, top_bar
+from src.dashboard.data_loader import load_dashboard_data
+from src.dashboard.pages import (
+    overview,
+    family,
+    product,
+    brand,
+    review,
+    demographics,
+    search,
+    pipeline,
 )
 
-# Selector producto
-with st.sidebar:
-    st.header("Filtros")
-    product_list = (
-        df[["ProductID", "ProductName"]]
-        .dropna()
-        .drop_duplicates()
-        .sort_values("ProductName")
+
+st.set_page_config(
+    page_title="MarketPulse Beauty",
+    page_icon="✦",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+th.inject_css()
+
+NAV_GROUPS = [
+    {"title": "Analytics", "items": [
+        {"key": "overview",     "label": "Overview",         "icon": "🏠"},
+        {"key": "family",       "label": "Family Explorer",  "icon": "🧪"},
+        {"key": "product",      "label": "Product Detail",   "icon": "📦"},
+        {"key": "brand",        "label": "Brand Benchmark",  "icon": "🏷️"},
+    ]},
+    {"title": "Discovery", "items": [
+        {"key": "review",       "label": "Review Explorer",  "icon": "💬"},
+        {"key": "demographics", "label": "Demographics",     "icon": "👥"},
+        {"key": "search",       "label": "Search Intel",     "icon": "🔍"},
+    ]},
+    {"title": "System", "items": [
+        {"key": "pipeline",     "label": "Pipeline Health",  "icon": "📊"},
+    ]},
+]
+
+PAGES = {
+    "overview": overview.render,
+    "family": family.render,
+    "product": product.render,
+    "brand": brand.render,
+    "review": review.render,
+    "demographics": demographics.render,
+    "search": search.render,
+    "pipeline": pipeline.render,
+}
+
+
+def main() -> None:
+    if "active_page" not in st.session_state:
+        st.session_state.active_page = "overview"
+
+    active = render_sidebar(
+        active_key=st.session_state.active_page,
+        nav_groups=NAV_GROUPS,
+        user=("EM", "Elena Marín", "Category Lead"),
     )
-    product_map = dict(zip(product_list["ProductName"], product_list["ProductID"]))
-    selected_name = st.selectbox("Producto", list(product_map.keys()))
-    selected_id = product_map[selected_name]
+    st.session_state.active_page = active
 
-prod_reviews = df[df["ProductID"] == selected_id].copy()
-prod_row = products[products["ProductID"] == selected_id].head(1)
-prod_row = prod_row.iloc[0] if len(prod_row) else None
+    try:
+        data = load_dashboard_data()
+    except Exception as e:  # noqa: BLE001 — surface DB errors at the top of the page
+        st.error(
+            "Could not connect to the gold-layer Postgres. "
+            "Check that the `postgres` container is running and that "
+            "PG_CONN points to it (default in docker-compose: "
+            "`postgresql+psycopg2://postgres:***@postgres:5432/marketpulse`)."
+        )
+        st.exception(e)
+        st.stop()
+        return
 
-# KPIs
-c1, c2, c3, c4 = st.columns(4)
+    if data.last_run is not None:
+        finished = data.last_run.get("finished_at")
+        when = finished.strftime("%Y-%m-%d %H:%M UTC") if finished is not None else "n/a"
+        refresh = f"Synced · {data.last_run['dag_name']} · {when}"
+    else:
+        refresh = f"source: {data.source}"
 
-rating_avg_reviews = float(prod_reviews["Rating"].mean()) if prod_reviews["Rating"].notna().any() else None
-health = compute_health_score(prod_reviews, prod_row)
-n_reviews = int(len(prod_reviews))
-avg_rating_product = float(prod_row["AvgRating"]) if prod_row is not None and pd.notna(prod_row.get("AvgRating")) else None
+    top_bar(refresh=refresh, date_range="Postgres · gold.*")
 
-c1.metric("Rating promedio (reseñas)", f"{rating_avg_reviews:.2f}" if rating_avg_reviews is not None else "N/A")
-c2.metric("AvgRating (producto)", f"{avg_rating_product:.2f}" if avg_rating_product is not None else "N/A")
-c3.metric("Health Score (0-100)", f"{health:.1f}")
-c4.metric("N° reseñas", f"{n_reviews}")
+    PAGES[active](data)
 
-st.divider()
 
-# Evolución temporal (rating + volumen semanal)
-st.subheader("Evolución temporal")
-if "SubmissionTime" in prod_reviews.columns and prod_reviews["SubmissionTime"].notna().any():
-    tmp = prod_reviews.dropna(subset=["SubmissionTime"]).sort_values("SubmissionTime").set_index("SubmissionTime")
-
-    colA, colB = st.columns(2)
-    with colA:
-        if "Rating" in tmp.columns and tmp["Rating"].notna().any():
-            st.caption("Rating promedio semanal")
-            st.line_chart(tmp["Rating"].resample("W").mean(), height=260)
-        else:
-            st.info("No hay Rating para graficar.")
-
-    with colB:
-        st.caption("Volumen de reseñas semanal")
-        st.line_chart(tmp.resample("W").size(), height=260)
-else:
-    st.info("No hay SubmissionTime para graficar evolución temporal.")
-
-st.divider()
-
-# Distribución de sentimiento (no existe aún en tus silver)
-st.subheader("Distribución de sentimiento")
-st.info("Aún no hay columnas de sentimiento en los parquets silver (sentiment_label/sentiment_score). "
-        "Cuando estén disponibles en la capa silver/gold, se puede agregar la distribución aquí.")
-
-st.divider()
-
-# Distribución de ratings
-st.subheader("Distribución de ratings")
-rating_counts = prod_reviews["Rating"].value_counts().sort_index()
-st.bar_chart(rating_counts, height=240)
-
-# Tabla de muestra
-with st.expander("Ver muestra de reseñas"):
-    show_cols = [c for c in ["ReviewID", "Rating", "Title", "ReviewText", "SubmissionTime", "IsRecommended", "HelpfulCount"] if c in prod_reviews.columns]
-    st.dataframe(prod_reviews[show_cols].head(25))
+main()
