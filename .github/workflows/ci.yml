@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main", "develop"]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check imports
+        run: |
+          python -c "import src.processing.health_score; import src.processing.data_contracts; import src.processing.clean_text"
+
+      - name: Validate data contracts
+        run: |
+          python tests/validate_data_contracts.py
+
+      - name: Run tests
+        run: |
+          pytest --cov=src.processing.health_score --cov=src.processing.data_contracts --cov=src.processing.clean_text --cov-report=term-missing --cov-fail-under=60

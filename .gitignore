@@ -1,63 +1,77 @@
-# ─────────────────
-# Entorno virtual
-# ─────────────────
+# ─────────────────────────────
+# DATA (CRÍTICO)
+# ─────────────────────────────
+# Ignorar TODO el directorio data
+data/**
+
+# PERMITIR solo metadata de DVC y estructura
+!data/**/*.dvc
+!data/**/.gitignore
+!data/**/.gitkeep
+
+# (Opcional) permitir xml si lo necesitas versionar
+!data/raw/xml/*.xml
+
+# ─────────────────────────────
+# PARQUET, CSV, JSON pesados
+# ─────────────────────────────
+*.parquet
+*.csv
+*.json
+
+# ⚠️ EXCEPCIÓN: metadata útil
+!data/**/*.dvc
+
+# ─────────────────────────────
+# ENTORNOS
+# ─────────────────────────────
 venv/
 .venv/
 env/
 ENV/
 
-# ─────────────────
-# Variables privadas
-# ─────────────────
+# ─────────────────────────────
+# VARIABLES SENSIBLES
+# ─────────────────────────────
 .env
 .env.*
 *.env
 
-# ─────────────────
-# Python cache
-# ─────────────────
-__pycache__/
-*.pyc
-*.pyo
+# También tu scraper tiene uno aquí:
+src/**/.env
+
+# ─────────────────────────────
+# PYTHON CACHE
+# ─────────────────────────────
+**/__pycache__/
+*.py[cod]
 *.pyd
 *.pytest_cache/
 .ipynb_checkpoints/
 
-# mantener carpetas
-!data/raw/**/.gitkeep
+# ─────────────────────────────
+# LOGS
+# ─────────────────────────────
+logs/
+*.log
 
-# ─────────────────
-# Archivos sensibles
-# ─────────────────
+# ─────────────────────────────
+# ARCHIVOS SENSIBLES
+# ─────────────────────────────
 sephora_cookies.json
 src/**/sephora_cookies.json
 
-# ─────────────────
-# Scraping outputs temporales
-# ─────────────────
-*.log
-*.tmp
-
-# ─────────────────
-# OS files
-# ─────────────────
+# ─────────────────────────────
+# OS / IDE
+# ─────────────────────────────
 .DS_Store
 Thumbs.db
-
-# ─────────────────
-# IDE
-# ─────────────────
 .vscode/
 .idea/
 
-# ─────────────────
-# Jupyter
-# ─────────────────
-.ipynb_checkpoints/
-
-# ─────────────────
-# Python packaging
-# ─────────────────
+# ─────────────────────────────
+# BUILD
+# ─────────────────────────────
 build/
 dist/
 *.egg-info/
