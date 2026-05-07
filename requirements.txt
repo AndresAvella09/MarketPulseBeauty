@@ -1,3 +1,7 @@
+streamlit
+pandas
+pyarrow
+nltk
 pandas==2.2.3
 numpy==1.26.4
 matplotlib==3.8.4
@@ -17,4 +21,6 @@ playwright-stealth
 beautifulsoup4
 requests
 pyarrow
-dvc[gdrive]
+dill>=0.3.4
+python-dotenv
+bertopic==0.16.4
