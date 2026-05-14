@@ -244,3 +244,8 @@ CREATE TABLE IF NOT EXISTS gold.pipeline_runs (
     finished_at        TIMESTAMPTZ,
     duration_seconds   REAL
 );
+
+-- Restore the gold data dump (only on first initialization)
+-- Use --clean to drop existing objects first, --if-exists to ignore errors
+\connect marketpulse
+\! pg_restore -U postgres -d marketpulse -v --clean --if-exists /docker-entrypoint-initdb.d/marketpulse_gold.dump || true
