@@ -1,0 +1,150 @@
+\documentclass[aspectratio=169]{beamer}
+\usetheme{Madrid}
+\usepackage[spanish]{babel}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+
+\title{MarketPulse Beauty}
+\subtitle{Retail Intelligence Dashboard para belleza y cuidado personal}
+\author{Equipo MarketPulse Beauty}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+  \vspace{0.2cm}
+  \begin{center}
+    Fase 1: vender el valor \quad | \quad Fase 2: como se creo y como se ejecuto
+  \end{center}
+\end{frame}
+
+\begin{frame}{Agenda}
+  \begin{itemize}
+    \item Fase 1: problema, oportunidad, propuesta de valor, demo conceptual
+    \item Fase 2: datos, arquitectura, calidad, metodolog\'ia Scrum
+    \item Cierre: resultados y siguientes pasos
+  \end{itemize}
+\end{frame}
+
+\section{Fase 1: Vender el valor}
+
+\begin{frame}{Por que esto importa a una pyme}
+  \begin{itemize}
+    \item Mucha data publica, poco tiempo para analizarla
+    \item Reviews y tendencias cambian rapido y se detectan tarde
+    \item Decisiones de producto se toman con intuicion, no con evidencia
+  \end{itemize}
+  \vspace{0.2cm}
+  \textbf{Mensaje clave:} MarketPulse convierte ruido en decisiones claras.
+\end{frame}
+
+\begin{frame}{Propuesta de valor}
+  \begin{itemize}
+    \item Automatiza analisis de reviews y tendencias publicas
+    \item Resume el estado del producto en indicadores simples
+    \item Detecta alertas tempranas y oportunidades de mercado
+    \item Reduce tiempo de analisis y acelera decisiones comerciales
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Tres pilares del producto}
+  \begin{itemize}
+    \item Health Score del producto (rating + volumen de busquedas)
+    \item Review Insights (temas recurrentes y sentimiento)
+    \item Trend Analysis (interes de busqueda y picos de demanda)
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Flujo de decision en el dashboard}
+  \begin{center}
+    \begin{tikzpicture}[
+      node distance=1.6cm,
+      box/.style={draw, rounded corners, align=center, minimum width=3.2cm, minimum height=0.9cm},
+      arrow/.style={-Latex, thick}
+    ]
+      \node[box] (a) {Resumen ejecutivo};
+      \node[box, right=of a] (b) {Cambios recientes};
+      \node[box, right=of b] (c) {Motivo de cambios};
+      \node[box, right=of c] (d) {Contexto de tendencias};
+      \node[box, right=of d] (e) {Alertas y riesgos};
+      \node[box, right=of e] (f) {Nivel de detalle};
+
+      \draw[arrow] (a) -- (b);
+      \draw[arrow] (b) -- (c);
+      \draw[arrow] (c) -- (d);
+      \draw[arrow] (d) -- (e);
+      \draw[arrow] (e) -- (f);
+    \end{tikzpicture}
+  \end{center}
+  \vspace{0.2cm}
+  \textbf{Objetivo:} que el usuario entienda estado, causa y riesgo en minutos.
+\end{frame}
+
+\begin{frame}{KPIs y visuales que guian acciones}
+  \begin{itemize}
+    \item Rating promedio, Health Score, volumen de reviews
+    \item Porcentaje de recomendacion y frecuencia de atributos
+    \item Evolucion temporal de reviews y tendencias
+    \item Visuales clave: ranking, barras horizontales, lineas temporales
+  \end{itemize}
+\end{frame}
+
+\section{Fase 2: Como se construyo}
+
+\begin{frame}{Como se construyo}
+  \begin{itemize}
+    \item Arquitectura orientada a datos con enfoque DataOps
+    \item Pipeline de ingesta, limpieza, enriquecimiento y delivery
+    \item Disenado para crecer: scraping, tendencias, alertas
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Estrategia de datos}
+  \begin{itemize}
+    \item Fuente principal: Sephora (reviews ricas y con fecha)
+    \item Arranque con dataset Kaggle (1M+ reviews, 8k+ productos)
+    \item Plan de scraping incremental en sprints posteriores
+    \item Limitaciones documentadas: sesgo de categorias, idioma, rating skew
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Pipeline y arquitectura}
+  \begin{itemize}
+    \item Medallion: raw $\rightarrow$ bronze $\rightarrow$ silver $\rightarrow$ gold
+    \item Orquestacion con Airflow (5 DAGs: ingestion, silver, gold, trends, data quality)
+    \item Almacenamiento: MinIO (objetos) y PostgreSQL (gold layer)
+    \item Dashboard en Streamlit, todo dockerizado
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Inteligencia y calidad}
+  \begin{itemize}
+    \item Motor de insights por producto (rating, volumen, health score, trends)
+    \item Reglas de tendencia con umbrales para alertas
+    \item Monitoreo entre ejecuciones para detectar regresiones
+    \item Validaciones de calidad para asegurar consistencia
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Metodolog\'ia Scrum aplicada}
+  \begin{itemize}
+    \item 6 sprints de 2 semanas, con eventos formales
+    \item Sprint 1: bases del repo, librer\'ias, fuentes de datos
+    \item Sprint 6: producto anal\'itico, datasets derivados, Docker funcional
+    \item Documentacion por sprint para trazabilidad y mejora continua
+  \end{itemize}
+\end{frame}
+
+\section{Cierre}
+
+\begin{frame}{Cierre: valor + ejecucion}
+  \begin{itemize}
+    \item MarketPulse traduce datos publicos en decisiones comerciales
+    \item MVP con arquitectura escalable y metodolog\'ia solida
+    \item Siguiente paso: demo con casos reales y validacion con pymes
+  \end{itemize}
+\end{frame}
+
+\end{document}
